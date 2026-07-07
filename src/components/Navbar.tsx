@@ -58,25 +58,25 @@ export default function Navbar({
   return (
     <nav className="glass-card border-b border-[var(--border-subtle)] sticky top-0 z-50 shadow-lg text-ink">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
+        <div className="flex justify-between items-center h-16 gap-2">
           
           {/* Logo Brand */}
-          <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
+          <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 shrink">
             <div className="bg-ball p-1.5 sm:p-2.5 rounded-xl text-black padel-glow flex items-center justify-center shrink-0">
               <Trophy className="h-4 w-4 sm:h-5 sm:w-5 font-bold" />
             </div>
-            <div className="flex flex-col justify-center">
-              <span className="font-display text-[10px] sm:text-lg md:text-xl font-black tracking-tighter uppercase leading-none block text-ink whitespace-nowrap">
+            <div className="flex flex-col justify-center min-w-0">
+              <span className="font-display text-[10px] sm:text-lg md:text-xl font-black tracking-tighter uppercase leading-none block text-ink truncate">
                 Liga Escalera <span className="text-ball-safe">Racket 2026</span>
               </span>
-              <span className="text-[7px] sm:text-[9px] uppercase tracking-widest text-ink-faint font-mono mt-0.5">
+              <span className="text-[7px] sm:text-[9px] uppercase tracking-widest text-ink-faint font-mono mt-0.5 truncate block">
                 Liga Oficial de Pádel
               </span>
             </div>
           </div>
 
           {/* Controls Bar */}
-          <div className="flex items-center space-x-1.5 sm:space-x-3 md:space-x-4">
+          <div className="flex items-center space-x-1.5 sm:space-x-3 md:space-x-4 shrink-0">
 
             {/* Theme Toggle */}
             <button

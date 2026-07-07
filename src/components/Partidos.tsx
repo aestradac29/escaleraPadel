@@ -837,7 +837,7 @@ export default function Partidos({
           </div>
 
           {/* Division selection */}
-          <div className="flex bg-[var(--surface-input)] border border-[var(--border-subtle)] p-1 rounded-xl gap-0.5">
+          <div className="flex flex-wrap bg-[var(--surface-input)] border border-[var(--border-subtle)] p-1 rounded-xl gap-0.5">
             {['Todas', 'Masculina', 'Femenina'].map((div) => (
               <button
                 key={div}
@@ -854,7 +854,7 @@ export default function Partidos({
           </div>
 
           {/* Status selection */}
-          <div className="flex bg-[var(--surface-input)] border border-[var(--border-subtle)] p-1.2 rounded-xl">
+          <div className="flex flex-wrap bg-[var(--surface-input)] border border-[var(--border-subtle)] p-1.2 rounded-xl">
             {['Todos', 'Jugados', 'Pendientes'].map((stat) => (
               <button
                 key={stat}

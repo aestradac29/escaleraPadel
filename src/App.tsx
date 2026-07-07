@@ -715,7 +715,7 @@ export default function App() {
       />
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-28 sm:pb-8">
         
         {/* Banner de retos pendientes por responder — visible en cualquier pestaña */}
         {myProfile && activeTab !== 'retos' && (() => {
@@ -787,8 +787,8 @@ export default function App() {
           </motion.div>
         )}
 
-        {/* Tab Buttons Navigation */}
-        <div className="flex border-b border-[var(--border-subtle)] pb-px mb-6 sm:mb-8 scrollbar-none overflow-x-auto gap-5">
+        {/* Tab Buttons Navigation (desktop/tablet) */}
+        <div className="hidden sm:flex border-b border-[var(--border-subtle)] pb-px mb-6 sm:mb-8 scrollbar-none overflow-x-auto gap-5">
           
           <button
             id="tab-ranking"
@@ -1012,6 +1012,72 @@ export default function App() {
           </span>
         </div>
       </footer>
+
+      {/* Bottom Tab Navigation (mobile only) — thumb-friendly, always visible */}
+      <nav className="sm:hidden fixed bottom-0 inset-x-0 z-40 glass-card border-t border-[var(--border-subtle)] shadow-[0_-4px_20px_rgba(0,0,0,0.25)] pb-[env(safe-area-inset-bottom)]">
+        <div className="flex items-stretch justify-around">
+          <button
+            onClick={() => setActiveTab('ranking')}
+            className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${
+              activeTab === 'ranking' ? 'text-ball-safe' : 'text-ink-faint'
+            }`}
+          >
+            <Trophy className="h-5 w-5" />
+            <span>Ranking</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('partidos')}
+            className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${
+              activeTab === 'partidos' ? 'text-ball-safe' : 'text-ink-faint'
+            }`}
+          >
+            <Calendar className="h-5 w-5" />
+            <span>Partidos</span>
+          </button>
+
+          {myProfile && (
+            <button
+              onClick={() => setActiveTab('retos')}
+              className={`relative flex flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${
+                activeTab === 'retos' ? 'text-ball-safe' : 'text-ink-faint'
+              }`}
+            >
+              <span className="relative">
+                <Sword className="h-5 w-5" />
+                {challenges.filter(c => c.challengedB1Id === myProfile.id && c.status === 'pending').length > 0 && (
+                  <span className="absolute -top-1 -right-1.5 bg-ball text-black text-[8px] font-black w-3.5 h-3.5 flex items-center justify-center rounded-full leading-none">
+                    {challenges.filter(c => c.challengedB1Id === myProfile.id && c.status === 'pending').length}
+                  </span>
+                )}
+              </span>
+              <span>Retos</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => setActiveTab('info')}
+            className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${
+              activeTab === 'info' ? 'text-ball-safe' : 'text-ink-faint'
+            }`}
+          >
+            <BookOpen className="h-5 w-5" />
+            <span>Info</span>
+          </button>
+
+          {isAdminMode && (
+            <button
+              onClick={() => setActiveTab('admin')}
+              className={`flex flex-1 flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${
+                activeTab === 'admin' ? 'text-ball-safe' : 'text-ink-faint'
+              }`}
+            >
+              <Shield className="h-5 w-5" />
+              <span>Admin</span>
+            </button>
+          )}
+        </div>
+      </nav>
 
       {/* Auth Modal at the root hierarchy level */}
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />

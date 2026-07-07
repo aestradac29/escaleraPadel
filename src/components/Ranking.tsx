@@ -301,7 +301,7 @@ export default function Ranking({
           </div>
 
           {/* Division (Gender) Selection Bar */}
-          <div className="flex bg-[var(--surface-input)] border border-[var(--border-subtle)] p-1 rounded-xl gap-0.5">
+          <div className="flex flex-wrap bg-[var(--surface-input)] border border-[var(--border-subtle)] p-1 rounded-xl gap-0.5">
             <button
               onClick={() => setFilterDivision('Todas')}
               className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
