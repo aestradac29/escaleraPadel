@@ -131,10 +131,17 @@ export default function Ranking({
 
   // Filter and sort players with custom tiebreaker protocol
   const processedPlayers = React.useMemo(() => {
+    // Identificar nombres de todos los administradores para ocultar posibles duplicados manuales
+    const adminNames = players
+      .filter(p => p.email === 'alvaroestradacabello@gmail.com' || adminIds.includes(p.id))
+      .map(p => `${p.nombre} ${p.apellidos}`.toLowerCase().trim());
+
     // Filter out administrators
     let list = players.filter(p => {
+      const fullName = `${p.nombre} ${p.apellidos}`.toLowerCase().trim();
       const isA = p.email === 'alvaroestradacabello@gmail.com' || 
                   adminIds.includes(p.id) || 
+                  adminNames.includes(fullName) ||
                   (p as any).esAdmin || 
                   (p as any).role === 'admin';
       return !isA;
@@ -173,9 +180,15 @@ export default function Ranking({
 
   // Total de jugadores registrados, excluyendo administradores (no son competidores)
   const registeredPlayersCount = React.useMemo(() => {
+    const adminNames = players
+      .filter(p => p.email === 'alvaroestradacabello@gmail.com' || adminIds.includes(p.id))
+      .map(p => `${p.nombre} ${p.apellidos}`.toLowerCase().trim());
+
     return players.filter(p => {
+      const fullName = `${p.nombre} ${p.apellidos}`.toLowerCase().trim();
       const isA = p.email === 'alvaroestradacabello@gmail.com' ||
                   adminIds.includes(p.id) ||
+                  adminNames.includes(fullName) ||
                   (p as any).esAdmin ||
                   (p as any).role === 'admin';
       return !isA;
@@ -184,11 +197,18 @@ export default function Ranking({
 
   // Número de grupos de 4 jugadores reales disponibles para la división seleccionada
   const totalGrupos = React.useMemo(() => {
-    const isA = (p: Player) => 
-      p.email === 'alvaroestradacabello@gmail.com' ||
-      adminIds.includes(p.id) ||
-      (p as any).esAdmin ||
-      (p as any).role === 'admin';
+    const adminNames = players
+      .filter(p => p.email === 'alvaroestradacabello@gmail.com' || adminIds.includes(p.id))
+      .map(p => `${p.nombre} ${p.apellidos}`.toLowerCase().trim());
+
+    const isA = (p: Player) => {
+      const fullName = `${p.nombre} ${p.apellidos}`.toLowerCase().trim();
+      return p.email === 'alvaroestradacabello@gmail.com' ||
+        adminIds.includes(p.id) ||
+        adminNames.includes(fullName) ||
+        (p as any).esAdmin ||
+        (p as any).role === 'admin';
+    };
 
     if (filterDivision === 'Todas') {
       const mascCount = players.filter(p => !isA(p) && p.division === 'Masculina').length;
