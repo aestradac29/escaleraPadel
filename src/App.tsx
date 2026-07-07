@@ -1000,7 +1000,7 @@ export default function App() {
       {/* Footer */}
       <footer className="border-t border-[var(--border-subtle)] mt-12 py-6 text-center text-[11px] text-ink-faint font-mono uppercase tracking-widest flex flex-col sm:flex-row sm:justify-between sm:items-center px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full gap-2">
         <div className="flex items-center justify-center gap-1.5">
-          <span>PADEL PRO MASTER CIRCUIT</span>
+          <span>LIGA ESCALERA RACKET 2026</span>
           <Heart className="h-3.5 w-3.5 text-rose-500 fill-rose-500 animate-pulse" />
         </div>
         <div className="flex flex-col sm:flex-row items-center gap-2 text-ink-faint text-[10px]">
