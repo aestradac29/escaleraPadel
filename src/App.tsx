@@ -217,13 +217,9 @@ export default function App() {
     };
   }, []);
 
-  // 1b. Subscribe to Admins list conditionally when logged in
+  // 1b. Subscribe to Admins list (público: necesario para que la clasificación
+  // excluya a los administradores incluso para visitantes no logueados)
   React.useEffect(() => {
-    if (!currentUser) {
-      setAdminIds([]);
-      return;
-    }
-
     const qAdmins = query(collection(db, 'admins'));
     const unsubAdmins = onSnapshot(qAdmins, (snapshot) => {
       const adminIdsList: string[] = [];
@@ -238,7 +234,7 @@ export default function App() {
     return () => {
       unsubAdmins();
     };
-  }, [currentUser]);
+  }, []);
 
   // 1c. Compute user admin mode reactively in real-time
   React.useEffect(() => {

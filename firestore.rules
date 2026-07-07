@@ -152,8 +152,11 @@ service cloud.firestore {
     }
 
     // ── Admins ─────────────────────────────────────────────────────────────
+    // Lectura pública: la clasificación necesita saber qué jugadores son
+    // administradores para excluirlos, incluso para visitantes no logueados.
+    // No expone nada nuevo: el email ya es público en /players.
     match /admins/{adminId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow write: if isAdmin();
     }
 
