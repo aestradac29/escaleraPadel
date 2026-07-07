@@ -1003,14 +1003,16 @@ export default function App() {
           <span>LIGA ESCALERA RACKET 2026</span>
           <Heart className="h-3.5 w-3.5 text-rose-500 fill-rose-500 animate-pulse" />
         </div>
-        <div className="flex flex-col sm:flex-row items-center gap-2 text-ink-faint text-[10px]">
-          <span>Firestore DB Status: {db ? 'ONLINE' : 'OFFLINE'}</span>
-          <span className="hidden sm:inline opacity-40">|</span>
-          <span className="flex items-center gap-1">
-            Entorno: <strong className={isProdDb ? "text-amber-500 font-extrabold" : "text-sky-500 font-semibold"}>{isProdDb ? 'PRO' : 'DES'}</strong>
-            <span className={`inline-block w-1.5 h-1.5 rounded-full ${isProdDb ? "bg-amber-500 animate-pulse" : "bg-sky-400 animate-pulse"}`}></span>
-          </span>
-        </div>
+        {isAdminMode && (
+          <div className="flex flex-col sm:flex-row items-center gap-2 text-ink-faint text-[10px]">
+            <span>Firestore DB Status: {db ? 'ONLINE' : 'OFFLINE'}</span>
+            <span className="hidden sm:inline opacity-40">|</span>
+            <span className="flex items-center gap-1">
+              Entorno: <strong className={isProdDb ? "text-amber-500 font-extrabold" : "text-sky-500 font-semibold"}>{isProdDb ? 'PRO' : 'DES'}</strong>
+              <span className={`inline-block w-1.5 h-1.5 rounded-full ${isProdDb ? "bg-amber-500 animate-pulse" : "bg-sky-400 animate-pulse"}`}></span>
+            </span>
+          </div>
+        )}
       </footer>
 
       {/* Bottom Tab Navigation (mobile only) — thumb-friendly, always visible */}
