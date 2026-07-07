@@ -1,0 +1,221 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Catch-all deniega todo lo no especificado ──────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'alvaroestradacabello@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    function isValidPlayer(player) {
+      return player.nombre is string && player.nombre.size() > 0 && player.nombre.size() <= 100 &&
+             player.apellidos is string && player.apellidos.size() > 0 && player.apellidos.size() <= 100 &&
+             player.categoria is string && player.categoria.size() > 0 && player.categoria.size() <= 100 &&
+             player.division is string && (player.division == 'Masculina' || player.division == 'Femenina') &&
+             player.puntos is number && player.puntos >= 0 &&
+             // posicion (Reglamento 2026, Art. 9): opcional mientras se completa la migración,
+             // pero si está presente debe ser un entero >= 1.
+             (!('posicion' in player) || (player.posicion is number && player.posicion >= 1));
+    }
+
+    function isValidMatch(matchData) {
+      return matchData.type is string && (matchData.type == '1vs1' || matchData.type == '2vs2') &&
+             matchData.playerA1Id is string &&
+             matchData.playerB1Id is string &&
+             matchData.categoria is string &&
+             matchData.division is string &&
+             matchData.winner is string && (matchData.winner == 'A' || matchData.winner == 'B' || matchData.winner == 'playing') &&
+             matchData.pointsChange is number;
+    }
+
+    // Comprueba que el usuario autenticado es uno de los participantes del partido
+    function isMatchParticipant() {
+      return isSignedIn() && (
+        resource.data.playerA1Id == request.auth.uid ||
+        resource.data.playerA2Id == request.auth.uid ||
+        resource.data.playerB1Id == request.auth.uid ||
+        resource.data.playerB2Id == request.auth.uid
+      );
+    }
+
+    // Campos que un jugador (no admin) puede modificar en un partido:
+    // únicamente los relacionados con el envío / aprobación / disputa del resultado.
+    function onlyResultFields() {
+      let allowed = [
+        'resultStatus', 'resultSubmittedBy', 'resultSubmittedByName', 'resultSubmittedAt',
+        'pendingSet1A', 'pendingSet1B', 'pendingSet2A', 'pendingSet2B',
+        'pendingSet3A', 'pendingSet3B', 'pendingWinner',
+        'pendingIsReto', 'pendingPosA1', 'pendingPosA2', 'pendingPosB1', 'pendingPosB2',
+        'resultApprovedBy', 'resultApprovedByName', 'resultApprovedAt',
+        'resultDisputedBy', 'resultDisputedByName', 'resultDisputedAt', 'resultDisputedReason',
+        // Cuando se aprueba el resultado, el jugador escribe también los sets y winner finales
+        'set1A', 'set1B', 'set2A', 'set2B', 'set3A', 'set3B',
+        'winner', 'playedAt', 'pointsChange',
+        'isReto', 'pointsA1', 'pointsA2', 'pointsB1', 'pointsB2',
+        'posA1', 'posA2', 'posB1', 'posB2', 'updatedAt'
+      ];
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowed);
+    }
+
+    // ── Players ────────────────────────────────────────────────────────────
+    match /players/{playerId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidId(playerId) && isValidPlayer(request.resource.data);
+      // Auto-registro: un usuario autenticado puede crear ÚNICAMENTE su propia
+      // ficha de jugador (uid == playerId), siempre con 1000 puntos de salida
+      // para que nadie pueda auto-asignarse una puntuación distinta.
+      allow create: if isSignedIn() && request.auth.uid == playerId &&
+                       isValidPlayer(request.resource.data) &&
+                       request.resource.data.puntos == 1000;
+      allow update: if isAdmin() && isValidId(playerId) && isValidPlayer(request.resource.data);
+      // Un jugador puede actualizar los datos de su propio perfil que NO afectan
+      // a la clasificación (nombre, apellidos, email, teléfono). La categoría,
+      // división y puntos siguen siendo exclusivos de un administrador.
+      allow update: if isSignedIn() && request.auth.uid == playerId &&
+                       request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['nombre', 'apellidos', 'email', 'telefono', 'updatedAt']);
+      // Aprobación de resultados (Partidos.tsx) y movimientos de la escalera
+      // (Reglamento 2026, Art. 18-26): cualquiera de los 4 jugadores de un
+      // partido puede actualizar los puntos/posición de SÍ MISMO o de
+      // CUALQUIER OTRO jugador de ESE MISMO partido, identificado mediante
+      // `lastApprovedMatchId` —el cliente debe escribir ese campo apuntando al
+      // partido que está aprobando, y la regla comprueba que dicho partido
+      // siga en estado 'pending_approval' (su valor justo antes de este lote)
+      // y que tanto quien firma la petición como el jugador objetivo sean
+      // alguno de los 4 participantes de ese partido.
+      allow update: if isSignedIn() &&
+                       request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['puntos', 'posicion', 'lastApprovedMatchId', 'updatedAt']) &&
+                       request.resource.data.lastApprovedMatchId is string &&
+                       get(/databases/$(database)/documents/matches/$(request.resource.data.lastApprovedMatchId)).data.resultStatus == 'pending_approval' &&
+                       (
+                         get(/databases/$(database)/documents/matches/$(request.resource.data.lastApprovedMatchId)).data.playerA1Id == request.auth.uid ||
+                         get(/databases/$(database)/documents/matches/$(request.resource.data.lastApprovedMatchId)).data.playerA2Id == request.auth.uid ||
+                         get(/databases/$(database)/documents/matches/$(request.resource.data.lastApprovedMatchId)).data.playerB1Id == request.auth.uid ||
+                         get(/databases/$(database)/documents/matches/$(request.resource.data.lastApprovedMatchId)).data.playerB2Id == request.auth.uid
+                       ) &&
+                       (
+                         get(/databases/$(database)/documents/matches/$(request.resource.data.lastApprovedMatchId)).data.playerA1Id == playerId ||
+                         get(/databases/$(database)/documents/matches/$(request.resource.data.lastApprovedMatchId)).data.playerA2Id == playerId ||
+                         get(/databases/$(database)/documents/matches/$(request.resource.data.lastApprovedMatchId)).data.playerB1Id == playerId ||
+                         get(/databases/$(database)/documents/matches/$(request.resource.data.lastApprovedMatchId)).data.playerB2Id == playerId
+                       );
+      allow delete: if isAdmin();
+    }
+
+    // ── Matches ────────────────────────────────────────────────────────────
+    match /matches/{matchId} {
+      allow read: if true;
+      allow create: if isAdmin() && isValidId(matchId) && isValidMatch(request.resource.data);
+      // Un jugador puede crear un partido SOLO si está recién agendado (sin
+      // resultado ni puntos todavía) y él mismo es uno de los 4 participantes.
+      // Esto cubre la aceptación de un reto, donde el jugador retado confirma
+      // su pareja y agenda el partido sin pasar por el admin.
+      allow create: if isSignedIn() && isValidId(matchId) && isValidMatch(request.resource.data) &&
+                       request.resource.data.winner == 'playing' &&
+                       request.resource.data.pointsChange == 0 &&
+                       (request.resource.data.playerA1Id == request.auth.uid ||
+                        request.resource.data.playerA2Id == request.auth.uid ||
+                        request.resource.data.playerB1Id == request.auth.uid ||
+                        request.resource.data.playerB2Id == request.auth.uid);
+      // Admin puede modificar todo
+      allow update: if isAdmin();
+      // Jugador participante puede modificar solo campos de resultado
+      allow update: if isMatchParticipant() && onlyResultFields();
+      // Cuando un jugador aprueba el resultado también actualiza sus puntos
+      // → eso lo hace en 'players', ya cubierto arriba por isAdmin()
+      // (los puntos los aplicamos desde el cliente con el UID del aprobador en una Cloud Function
+      //  o, en fallback, desde el cliente con isAdmin solo si hay un admin logueado)
+      allow delete: if isAdmin();
+    }
+
+    // ── Categories ─────────────────────────────────────────────────────────
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ── Admins ─────────────────────────────────────────────────────────────
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ── Sanctions ──────────────────────────────────────────────────────────
+    match /sanctions/{sanctionId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ── Seasons (historial de cierres de temporada / ascensos-descensos) ───
+    match /seasons/{seasonId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ── Jornadas Oficiales (historial de movimientos de la escalera) ───────
+    // Reglamento 2026, Cap. V y VI: cada Jornada Oficial registra el resultado
+    // de un grupo de 4 y el movimiento de posiciones resultante. Por ahora solo
+    // el admin las registra (fase 1 del nuevo sistema); se podrá abrir a los
+    // propios jugadores en una fase posterior, igual que el resto de resultados.
+    match /jornadas/{jornadaId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ── Challenges (retos entre jugadores) ──────────────────────────────────
+    match /challenges/{challengeId} {
+      allow read: if true;
+
+      // El retador crea su propio reto (siempre como challengerA1Id)
+      allow create: if isSignedIn() &&
+                       request.resource.data.challengerA1Id == request.auth.uid &&
+                       request.resource.data.status == 'pending';
+
+      // El retado acepta (elige su compañero) o rechaza el reto
+      allow update: if isSignedIn() &&
+                       request.auth.uid == resource.data.challengedB1Id &&
+                       resource.data.status == 'pending' &&
+                       request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['status', 'partnerB2Id', 'partnerB2Name', 'acceptedAt', 'declinedAt']);
+
+      // El retador cancela su propio reto mientras esté pendiente
+      allow update: if isSignedIn() &&
+                       request.auth.uid == resource.data.challengerA1Id &&
+                       resource.data.status == 'pending' &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'declinedAt']);
+
+      // Cierre del reto al aprobarse el resultado del partido vinculado (Art. 26):
+      // cualquiera de los 4 jugadores de ese partido puede marcarlo como completado.
+      allow update: if isSignedIn() &&
+                       resource.data.status == 'accepted' &&
+                       request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['status', 'resultStatus', 'ganadorRetador', 'movimientoAplicado', 'matchId']) &&
+                       request.resource.data.status == 'completed' &&
+                       (
+                         request.auth.uid == resource.data.challengerA1Id ||
+                         request.auth.uid == resource.data.challengerA2Id ||
+                         request.auth.uid == resource.data.challengedB1Id ||
+                         request.auth.uid == resource.data.partnerB2Id
+                       );
+
+      allow delete: if isAdmin();
+    }
+  }
+}

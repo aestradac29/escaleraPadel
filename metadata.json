@@ -1,0 +1,6 @@
+{
+  "name": "Liga Escalera Racket 2026",
+  "description": "Un gestor para la Liga Escalera Racket de pádel, incluyendo administración de jugadores, partidos, retos y clasificaciones en tiempo real.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

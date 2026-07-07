@@ -1,0 +1,129 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Outfit:wght@100..900&family=JetBrains+Mono:wght@100..800&display=swap');
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────────────────
+   SISTEMA DE DISEÑO — inspirado en pádel real, no en el "dark mode + verde
+   ácido" genérico de cualquier app generada con IA.
+
+   Roles de color (cada uno significa una sola cosa, no se mezclan):
+   - ball   (amarillo pelota)  → acción principal, marca, pestaña activa
+   - gold   (oro trofeo)       → victoria / ganador, nunca para otra cosa
+   - court  (azul pista)       → información, puntos, enlaces, datos
+   - rose/amber/emerald        → peligro / pendiente / confirmado (estándar)
+   ───────────────────────────────────────────────────────────────────────── */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-ball: #d6f23a;        /* Amarillo pelota de pádel — acción principal */
+  --color-ball-hover: #e3fa6b;
+  --color-gold: #f2b807;        /* Oro trofeo — victorias, podio, ganador */
+  --color-gold-hover: #ffd23f;
+  --color-court: #16a3c9;       /* Azul pista — información, puntos, enlaces */
+  --color-court-hover: #3dc0e3;
+
+  /* Compatibilidad con código existente que aún referencia "brand" */
+  --color-brand-primary: var(--color-ball);
+  --color-brand-accent: var(--color-ball);
+  --color-brand-accent-hover: var(--color-ball-hover);
+}
+
+/* ── Tema oscuro (por defecto): pista nocturna bajo focos ─────────────── */
+:root,
+[data-theme="dark"] {
+  --bg-page-from: #132230;
+  --bg-page-to: #060b10;
+  --surface-1: rgba(19, 34, 46, 0.55);     /* tarjetas (glass-card) */
+  --surface-2: rgba(255, 255, 255, 0.06);  /* superficie elevada/hover */
+  --surface-input: rgba(0, 0, 0, 0.4);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --text-primary: #f6f7f3;
+  --text-secondary: rgba(246, 247, 243, 0.65);
+  --text-tertiary: rgba(246, 247, 243, 0.4);
+  --glow-ball: rgba(214, 242, 58, 0.25);
+  --text-ball-safe: var(--color-ball); /* en oscuro, el amarillo de texto es el mismo que el de superficie */
+  --scrollbar-track: rgba(6, 11, 16, 0.6);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.12);
+}
+
+/* ── Tema claro: pista al mediodía ─────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-page-from: #fafbf5;
+  --bg-page-to: #eef6f2;
+  --surface-1: rgba(255, 255, 255, 0.75);
+  --surface-2: rgba(10, 22, 32, 0.04);
+  --surface-input: rgba(10, 22, 32, 0.035);
+  --border-subtle: rgba(10, 22, 32, 0.08);
+  --border-strong: rgba(10, 22, 32, 0.16);
+  --text-primary: #0a1620;
+  --text-secondary: rgba(10, 22, 32, 0.62);
+  --text-tertiary: rgba(10, 22, 32, 0.4);
+  --glow-ball: rgba(214, 242, 58, 0.35);
+  /* El amarillo pelota puro no tiene contraste suficiente como TEXTO sobre
+     fondo claro (se "lava"); como superficie (botones, fondos) sigue siendo
+     el mismo amarillo vivo — solo el texto necesita una versión oscurecida. */
+  --text-ball-safe: #5c7300;
+  --scrollbar-track: rgba(10, 22, 32, 0.06);
+  --scrollbar-thumb: rgba(10, 22, 32, 0.14);
+}
+
+body {
+  font-family: var(--font-sans);
+  background: radial-gradient(circle at 50% -20%, var(--bg-page-from) 0%, var(--bg-page-to) 70%);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  min-height: 100vh;
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+/* ── Primitivas reutilizadas en TODA la app (alto apalancamiento: al      ── */
+/* ── cambiar esto aquí, cualquier componente que ya use estas clases    ── */
+/* ── hereda automáticamente el tema, aunque no se haya tocado su JSX)   ── */
+.glass-card {
+  background: var(--surface-1);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-subtle);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.padel-glow {
+  box-shadow: 0 0 25px var(--glow-ball);
+}
+
+.neon-border {
+  border: 1px solid var(--glow-ball);
+}
+
+.text-accent {
+  color: var(--color-ball);
+}
+
+/* Versión de "amarillo pelota" segura para texto (se oscurece en modo claro) */
+.text-ball-safe {
+  color: var(--text-ball-safe);
+}
+
+/* Texto semántico por jerarquía, en vez de text-white/XX repetido por todo el código */
+.text-ink { color: var(--text-primary); }
+.text-ink-muted { color: var(--text-secondary); }
+.text-ink-faint { color: var(--text-tertiary); }
+
+/* Custom scrollbars, también sensibles al tema */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--glow-ball);
+}
+

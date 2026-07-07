@@ -1,0 +1,169 @@
+{
+  "entities": {
+    "Player": {
+      "title": "Player",
+      "description": "Un jugador registrado en el torneo de pádel",
+      "type": "object",
+      "properties": {
+        "nombre": {
+          "type": "string",
+          "description": "Nombre del jugador"
+        },
+        "apellidos": {
+          "type": "string",
+          "description": "Apellidos del jugador"
+        },
+        "categoria": {
+          "type": "string",
+          "description": "Categoría de nivel de juego (ej. Primera, Segunda, Tercera)",
+          "enum": ["Primera", "Segunda", "Tercera", "Cuarta"]
+        },
+        "division": {
+          "type": "string",
+          "description": "División por sexo",
+          "enum": ["Masculina", "Femenina"]
+        },
+        "puntos": {
+          "type": "number",
+          "description": "Puntos acumulados del jugador para el ranking"
+        },
+        "telefono": {
+          "type": "string",
+          "description": "Teléfono de contacto del jugador para notificaciones"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["nombre", "apellidos", "categoria", "division", "puntos"]
+    },
+    "Match": {
+      "title": "Match",
+      "description": "Un partido registrado entre los jugadores del torneo",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["1vs1", "2vs2"]
+        },
+        "playerA1Id": {
+          "type": "string"
+        },
+        "playerA1Name": {
+          "type": "string"
+        },
+        "playerA2Id": {
+          "type": "string"
+        },
+        "playerA2Name": {
+          "type": "string"
+        },
+        "playerB1Id": {
+          "type": "string"
+        },
+        "playerB1Name": {
+          "type": "string"
+        },
+        "playerB2Id": {
+          "type": "string"
+        },
+        "playerB2Name": {
+          "type": "string"
+        },
+        "categoria": {
+          "type": "string"
+        },
+        "division": {
+          "type": "string"
+        },
+        "set1A": {
+          "type": "number"
+        },
+        "set1B": {
+          "type": "number"
+        },
+        "set2A": {
+          "type": "number"
+        },
+        "set2B": {
+          "type": "number"
+        },
+        "set3A": {
+          "type": "number"
+        },
+        "set3B": {
+          "type": "number"
+        },
+        "winner": {
+          "type": "string",
+          "enum": ["A", "B", "playing"]
+        },
+        "pointsChange": {
+          "type": "number"
+        },
+        "playedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["type", "playerA1Id", "playerB1Id", "categoria", "division", "winner", "pointsChange"]
+    },
+    "Sanction": {
+      "title": "Sanction",
+      "description": "Una infracción o penalización de puntos aplicada a un jugador por administración",
+      "type": "object",
+      "properties": {
+        "playerId": {
+          "type": "string"
+        },
+        "playerName": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "division": {
+          "type": "string",
+          "enum": ["Masculina", "Femenina"]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "pointsDeduction": {
+          "type": "number"
+        },
+        "appliedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "appliedBy": {
+          "type": "string"
+        }
+      },
+      "required": ["playerId", "playerName", "category", "division", "reason", "pointsDeduction", "appliedAt", "appliedBy"]
+    }
+  },
+  "firestore": {
+    "/players/{playerId}": {
+      "schema": "Player",
+      "description": "Colección de jugadores del torneo"
+    },
+    "/matches/{matchId}": {
+      "schema": "Match",
+      "description": "Colección de partidos jugados o planificados"
+    },
+    "/sanctions/{sanctionId}": {
+      "schema": "Sanction",
+      "description": "Colección de sanciones y penalizaciones emitidas"
+    }
+  }
+}
