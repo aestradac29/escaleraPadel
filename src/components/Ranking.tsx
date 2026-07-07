@@ -346,7 +346,8 @@ export default function Ranking({
               <p className="text-sm">No se encontraron jugadores que coincidan con los filtros.</p>
             </div>
           ) : (
-            <table className="w-full text-left border-collapse">
+            <div className="overflow-x-auto rounded-xl border border-[var(--border-subtle)]">
+              <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-[var(--surface-2)] border-b border-[var(--border-subtle)] text-ink-faint text-[10px] uppercase font-mono tracking-widest font-bold">
                   <th className="py-3 px-4 w-12 text-center">Pos</th>
@@ -589,6 +590,7 @@ export default function Ranking({
                 </AnimatePresence>
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </div>

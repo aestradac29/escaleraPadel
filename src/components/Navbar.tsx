@@ -113,7 +113,7 @@ export default function Navbar({
                     className="flex items-center space-x-2.5 bg-[var(--surface-2)] border border-[var(--border-subtle)] hover:border-ball/40 transition-all pl-3 pr-3 py-1.5 rounded-xl cursor-pointer"
                     title="Ver / Editar mi perfil"
                   >
-                    <div className="flex flex-col text-left">
+                    <div className="hidden sm:flex flex-col text-left">
                       <span className="text-[11px] font-black text-ink hover:text-ball-safe transition-colors leading-tight">
                         {myProfile ? `${myProfile.nombre} ${myProfile.apellidos}` : (user.displayName || 'Mi Perfil')}
                       </span>

@@ -242,7 +242,7 @@ export default function RetosPanel({ challenges, players, myProfile, adminIds = 
                     <span><strong>Fecha propuesta:</strong> {invertDate(challenge.scheduledAt) || 'Sin fecha'}</span>
                   </div>
                   {challenge.scheduledTime && (
-                    <div className="flex items-center gap-1.5 border-l border-[var(--border-subtle)] pl-4">
+                    <div className="flex items-center gap-1.5 sm:border-l border-[var(--border-subtle)] sm:pl-4">
                       <Clock className="h-3.5 w-3.5 text-ball-safe" />
                       <span><strong>Hora propuesta:</strong> {challenge.scheduledTime}</span>
                     </div>
@@ -351,7 +351,7 @@ export default function RetosPanel({ challenges, players, myProfile, adminIds = 
                     <strong>Fecha:</strong> {invertDate(challenge.scheduledAt) || 'Sin fecha'}
                   </span>
                   {challenge.scheduledTime && (
-                    <span className="flex items-center gap-1.5 border-l border-[var(--border-subtle)] pl-3">
+                    <span className="flex items-center gap-1.5 sm:border-l border-[var(--border-subtle)] sm:pl-3">
                       <Clock className="h-3.5 w-3.5 text-sky-400" />
                       <strong>Hora:</strong> {challenge.scheduledTime}
                     </span>
