@@ -61,15 +61,15 @@ export default function Navbar({
         <div className="flex justify-between h-16">
           
           {/* Logo Brand */}
-          <div className="flex items-center space-x-2 sm:space-x-3">
-            <div className="bg-ball p-2 sm:p-2.5 rounded-xl text-black padel-glow flex items-center justify-center shrink-0">
-              <Trophy className="h-4.5 w-4.5 sm:h-5 sm:w-5 font-bold" />
+          <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
+            <div className="bg-ball p-1.5 sm:p-2.5 rounded-xl text-black padel-glow flex items-center justify-center shrink-0">
+              <Trophy className="h-4 w-4 sm:h-5 sm:w-5 font-bold" />
             </div>
-            <div>
-              <span className="font-display text-sm sm:text-lg md:text-xl font-black tracking-tighter uppercase leading-none block text-ink">
+            <div className="flex flex-col justify-center">
+              <span className="font-display text-[10px] sm:text-lg md:text-xl font-black tracking-tighter uppercase leading-none block text-ink whitespace-nowrap">
                 Liga Escalera <span className="text-ball-safe">Racket 2026</span>
               </span>
-              <span className="text-[8px] sm:text-[9px] uppercase tracking-widest text-ink-faint font-mono">
+              <span className="text-[7px] sm:text-[9px] uppercase tracking-widest text-ink-faint font-mono mt-0.5">
                 Liga Oficial de Pádel
               </span>
             </div>

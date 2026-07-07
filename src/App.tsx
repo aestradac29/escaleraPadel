@@ -793,13 +793,13 @@ export default function App() {
           <button
             id="tab-ranking"
             onClick={() => setActiveTab('ranking')}
-            className={`flex items-center gap-2 py-3 px-1 text-sm font-bold uppercase tracking-wider border-b-2 transition-all relative cursor-pointer ${
+            className={`flex items-center whitespace-nowrap gap-2 py-3 px-1 text-sm font-bold uppercase tracking-wider border-b-2 transition-all relative cursor-pointer ${
               activeTab === 'ranking' 
                 ? 'border-ball text-ball-safe' 
                 : 'border-transparent text-ink-muted hover:text-ink'
             }`}
           >
-            <Trophy className="h-4 w-4" />
+            <Trophy className="h-4 w-4 shrink-0" />
             <span>Clasificación</span>
             {activeTab === 'ranking' && (
               <motion.div layoutId="active-tab-indicator" className="absolute bottom-0 inset-x-0 h-0.5 bg-ball" />
@@ -809,13 +809,13 @@ export default function App() {
           <button
             id="tab-partidos"
             onClick={() => setActiveTab('partidos')}
-            className={`flex items-center gap-2 py-3 px-1 text-sm font-bold uppercase tracking-wider border-b-2 transition-all relative cursor-pointer ${
+            className={`flex items-center whitespace-nowrap gap-2 py-3 px-1 text-sm font-bold uppercase tracking-wider border-b-2 transition-all relative cursor-pointer ${
               activeTab === 'partidos' 
                 ? 'border-ball text-ball-safe' 
                 : 'border-transparent text-ink-muted hover:text-ink'
             }`}
           >
-            <Calendar className="h-4 w-4" />
+            <Calendar className="h-4 w-4 shrink-0" />
             <span>Calendario & Resultados</span>
             {activeTab === 'partidos' && (
               <motion.div layoutId="active-tab-indicator" className="absolute bottom-0 inset-x-0 h-0.5 bg-ball" />
@@ -826,13 +826,13 @@ export default function App() {
             <button
               id="tab-retos"
               onClick={() => setActiveTab('retos')}
-              className={`flex items-center gap-2 py-3 px-1 text-sm font-bold uppercase tracking-wider border-b-2 transition-all relative cursor-pointer ${
+              className={`flex items-center whitespace-nowrap gap-2 py-3 px-1 text-sm font-bold uppercase tracking-wider border-b-2 transition-all relative cursor-pointer ${
                 activeTab === 'retos'
                   ? 'border-ball text-ball-safe'
                   : 'border-transparent text-ink-muted hover:text-ink'
               }`}
             >
-              <Sword className="h-4 w-4" />
+              <Sword className="h-4 w-4 shrink-0" />
               <span>Retos</span>
               {challenges.filter(c => c.challengedB1Id === myProfile.id && c.status === 'pending').length > 0 && (
                 <span className="bg-ball text-black text-[9px] font-black px-1.5 py-0.5 rounded-full leading-none">
@@ -848,13 +848,13 @@ export default function App() {
           <button
             id="tab-info"
             onClick={() => setActiveTab('info')}
-            className={`flex items-center gap-2 py-3 px-1 text-sm font-bold uppercase tracking-wider border-b-2 transition-all relative cursor-pointer ${
+            className={`flex items-center whitespace-nowrap gap-2 py-3 px-1 text-sm font-bold uppercase tracking-wider border-b-2 transition-all relative cursor-pointer ${
               activeTab === 'info' 
                 ? 'border-ball text-ball-safe' 
                 : 'border-transparent text-ink-muted hover:text-ink'
             }`}
           >
-            <BookOpen className="h-4 w-4" />
+            <BookOpen className="h-4 w-4 shrink-0" />
             <span>Reglas & Info</span>
             {activeTab === 'info' && (
               <motion.div layoutId="active-tab-indicator" className="absolute bottom-0 inset-x-0 h-0.5 bg-ball" />
@@ -865,13 +865,13 @@ export default function App() {
             <button
               id="tab-admin"
               onClick={() => setActiveTab('admin')}
-              className={`flex items-center gap-2 py-3 px-1 text-sm font-bold uppercase tracking-wider border-b-2 transition-all relative cursor-pointer ${
+              className={`flex items-center whitespace-nowrap gap-2 py-3 px-1 text-sm font-bold uppercase tracking-wider border-b-2 transition-all relative cursor-pointer ${
                 activeTab === 'admin' 
                   ? 'border-ball text-ball-safe' 
                   : 'border-transparent text-ink-muted hover:text-ink'
               }`}
             >
-              <Shield className="h-4 w-4" />
+              <Shield className="h-4 w-4 shrink-0" />
               <span>{editingPlayer ? 'Editar Jugador' : 'Crear Jugadores / Partidos'}</span>
               {activeTab === 'admin' && (
                 <motion.div layoutId="active-tab-indicator" className="absolute bottom-0 inset-x-0 h-0.5 bg-ball" />
