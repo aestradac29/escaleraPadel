@@ -169,7 +169,7 @@ export default function Ranking({
       if (posA === Infinity) return b.puntos - a.puntos; // fallback para no migrados
       return a.nombre.localeCompare(b.nombre);
     });
-  }, [players, searchQuery, filterGrupo, filterDivision, statsMap]);
+  }, [players, searchQuery, filterGrupo, filterDivision, statsMap, adminIds]);
 
   // Total de jugadores registrados, excluyendo administradores (no son competidores)
   const registeredPlayersCount = React.useMemo(() => {
