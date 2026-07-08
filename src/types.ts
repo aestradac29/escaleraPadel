@@ -13,6 +13,7 @@ export interface Player {
   telefonoConsentimientoAt?: string;
   createdAt?: any;
   updatedAt?: any;
+  lastChallengeReset?: string; // ISO string de la última vez que el admin reinició su cooldown de retos
 }
 
 export type CategoriaType = string;
@@ -90,6 +91,7 @@ export interface Match {
 
   isReto?: 'A' | 'B' | 'none';
   challengeId?: string; // si el partido proviene de un Reto Oficial (Art. 21-26)
+  grupo?: number; // nº de grupo de la escalera (Art. 10) si el partido proviene de una Jornada de grupo (no aplica a Retos)
   pointsA1?: number;
   pointsA2?: number;
   pointsB1?: number;
@@ -199,4 +201,3 @@ export interface JornadaOficial {
   registradoPorNombre: string;
   createdAt: string;
 }
-

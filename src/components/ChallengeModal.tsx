@@ -84,8 +84,10 @@ export default function ChallengeModal({
 
   // Art. 22: un reto activo (pendiente o aceptado y no jugado) cada 2 semanas
   const now = Date.now();
+  const resetTime = myProfile.lastChallengeReset ? new Date(myProfile.lastChallengeReset).getTime() : 0;
   const misRetosRecientes = challenges.filter(c =>
     c.challengerA1Id === myProfile.id &&
+    new Date(c.createdAt).getTime() > resetTime &&
     (now - new Date(c.createdAt).getTime()) < DIAS_COOLDOWN * 24 * 60 * 60 * 1000 &&
     c.status !== 'declined'
   );
@@ -95,6 +97,7 @@ export default function ChallengeModal({
   const yaRetadoReciente = challenges.some(c =>
     c.challengerA1Id === myProfile.id &&
     c.challengedB1Id === otherPlayer.id &&
+    new Date(c.createdAt).getTime() > resetTime &&
     (now - new Date(c.createdAt).getTime()) < DIAS_COOLDOWN * 24 * 60 * 60 * 1000 &&
     c.status !== 'declined'
   );

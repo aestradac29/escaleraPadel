@@ -2,8 +2,9 @@ import React from 'react';
 import { Player, Match, Category, CategoriaType, DivisionType, Sanction, Season, SeasonMovement, Challenge, JornadaOficial, JornadaJugador } from '../types';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { collection, addDoc, doc, setDoc, deleteDoc, writeBatch, getDoc, getDocs, query, where, updateDoc } from 'firebase/firestore';
-import { UserPlus, CalendarPlus, Check, RefreshCw, AlertTriangle, HelpCircle, Trash2, Plus, ListCollapse, ChevronUp, ChevronDown, Shield, Gavel, TrendingUp, TrendingDown, Minus, History, Eye, Lock, FileSpreadsheet, Download, Upload, CheckCircle2, XCircle, Swords, Flame, ArrowUpDown, ListOrdered } from 'lucide-react';
+import { UserPlus, CalendarPlus, Check, RefreshCw, AlertTriangle, HelpCircle, Trash2, Plus, ListCollapse, ChevronUp, ChevronDown, Shield, Gavel, TrendingUp, TrendingDown, Minus, History, Eye, Lock, FileSpreadsheet, Download, Upload, CheckCircle2, XCircle, Swords, Flame, ArrowUpDown, ListOrdered, Pencil } from 'lucide-react';
 import { generateMatchesTemplate, parseMatchesExcelFile, ParsedMatchRow } from '../utils/excelMatches';
+import { buildAllGroupPreviews, GroupPreview } from '../utils/generateGroupMatches';
 import { getGrupo, getRangoGrupo, calcularClasificacionPartido, calcularMovimientoEscalera, calcularDescensoSancion, JugadorGrupo, ResultadoMovimiento } from '../utils/escalera';
 
 interface AdminPanelProps {
@@ -262,6 +263,9 @@ export default function AdminPanel({
   const [successMsg, setSuccessMsg] = React.useState<string | null>(null);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
   const [deleteConfirmCatId, setDeleteConfirmCatId] = React.useState<string | null>(null);
+  const [editingCategoryId, setEditingCategoryId] = React.useState<string | null>(null);
+  const [editingCategoryName, setEditingCategoryName] = React.useState<string>('');
+  const [renamingLoading, setRenamingLoading] = React.useState<boolean>(false);
   const [resetConfirm, setResetConfirm] = React.useState(false);
   const [resetLoading, setResetLoading] = React.useState(false);
 
@@ -287,6 +291,12 @@ export default function AdminPanel({
   const [excelCreating, setExcelCreating] = React.useState(false);
   const [excelFileName, setExcelFileName] = React.useState<string | null>(null);
   const excelFileInputRef = React.useRef<HTMLInputElement>(null);
+
+  // ── Generador de partidos de la Jornada desde los GRUPOS ACTUALES (escalera) ──
+  const [groupMatchesPreview, setGroupMatchesPreview] = React.useState<{ grupos: GroupPreview[]; incompletos: { grupo: number; jugadores: Player[] }[] } | null>(null);
+  const [groupMatchesCreating, setGroupMatchesCreating] = React.useState(false);
+  const [groupMatchesDate, setGroupMatchesDate] = React.useState<string>('');
+  const [groupMatchesTime, setGroupMatchesTime] = React.useState<string>('18:00');
 
   // ── Mover Posiciones Manualmente (desde la administración) ──────────────
   const [moverPlayerId, setMoverPlayerId] = React.useState<string>('');
@@ -401,6 +411,80 @@ export default function AdminPanel({
     }
   };
 
+  const handleRenameCategory = async (catId: string, oldName: string, newNameRaw: string) => {
+    const newName = newNameRaw.trim();
+    if (!newName) {
+      showError("El nombre del grupo no puede estar vacío.");
+      return;
+    }
+    if (newName === oldName) {
+      setEditingCategoryId(null);
+      return;
+    }
+    
+    // Check if another category already has this name
+    const exists = categories.some(c => c.name.toLowerCase() === newName.toLowerCase() && c.id !== catId);
+    if (exists) {
+      showError("Ya existe un grupo con ese nombre.");
+      return;
+    }
+
+    setRenamingLoading(true);
+    try {
+      // 1. Update the category document name in Firestore
+      await updateDoc(doc(db, 'categories', catId), { name: newName });
+
+      // We'll update matches, players, and challenges that match the old category name in a batch
+      const batch = writeBatch(db);
+      let opsCount = 0;
+
+      // 2. Fetch matches with old category name
+      const matchesQuery = query(collection(db, 'matches'), where('categoria', '==', oldName));
+      const matchesSnap = await getDocs(matchesQuery);
+      matchesSnap.forEach((matchDoc) => {
+        if (opsCount < 450) {
+          batch.update(doc(db, 'matches', matchDoc.id), { categoria: newName });
+          opsCount++;
+        }
+      });
+
+      // 3. Fetch players with old category name
+      const playersQuery = query(collection(db, 'players'), where('categoria', '==', oldName));
+      const playersSnap = await getDocs(playersQuery);
+      playersSnap.forEach((playerDoc) => {
+        if (opsCount < 450) {
+          batch.update(doc(db, 'players', playerDoc.id), { categoria: newName });
+          opsCount++;
+        }
+      });
+
+      // 4. Fetch challenges with old category name
+      const challengesQuery = query(collection(db, 'challenges'), where('categoria', '==', oldName));
+      const challengesSnap = await getDocs(challengesQuery);
+      challengesSnap.forEach((challengeDoc) => {
+        if (opsCount < 450) {
+          batch.update(doc(db, 'challenges', challengeDoc.id), { categoria: newName });
+          opsCount++;
+        }
+      });
+
+      if (opsCount > 0) {
+        await batch.commit();
+      }
+
+      showToast(`¡Grupo "${oldName}" renombrado a "${newName}" con éxito!`);
+      setEditingCategoryId(null);
+      if (onRefreshData) {
+        onRefreshData();
+      }
+    } catch (error) {
+      console.error("Error renaming category:", error);
+      showError("Error al intentar renombrar el grupo.");
+    } finally {
+      setRenamingLoading(false);
+    }
+  };
+
   // Update how many players ascend/descend for a given category
   const handleUpdatePromotionCount = async (catId: string, field: 'ascendCount' | 'descendCount', value: number) => {
     const safeValue = Math.max(0, Math.min(20, isNaN(value) ? 0 : value));
@@ -412,24 +496,36 @@ export default function AdminPanel({
     }
   };
 
-  // Agrupa jugadores por división+categoría, ordenados por puntos desc.
-  // Nota: a igualdad de puntos se desempata por nombre (criterio simple,
-  // pensado solo para decidir ascensos/descensos, no es el ranking visual).
+  // Agrupa jugadores por división+categoría, ordenados por posición ascendente en la escalera (Liga RACKET 2026).
+  // Nota: a igualdad de posición o si falta, se ordena por puntos/nombre como desempate.
   const groupPlayersByCategoryDivision = React.useCallback(() => {
     const sortedCategories = [...categories].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
     const divisions: DivisionType[] = ['Masculina', 'Femenina'];
     const groups: { categoria: Category; division: DivisionType; jugadores: Player[] }[] = [];
 
-    sortedCategories.forEach(cat => {
+    sortedCategories.forEach((cat, catIdx) => {
       divisions.forEach(div => {
+        const groupNum = catIdx + 1;
         const jugadores = players
-          .filter(p => p.categoria === cat.name && p.division === div)
           .filter(p => {
-            // Excluir administradores de los movimientos de categoría
             const isA = p.email === 'alvaroestradacabello@gmail.com' || adminIds.includes(p.id);
-            return !isA;
+            if (isA) return false;
+            if (p.division !== div) return false;
+            
+            // Determinado por rango de posiciones (1-4 = Grupo 1, 5-8 = Grupo 2, etc.)
+            if (p.posicion != null && p.posicion > 0) {
+              return getGrupo(p.posicion) === groupNum;
+            }
+            // Fallback para jugadores sin posición según su campo categoría guardado
+            return p.categoria === cat.name;
           })
-          .sort((a, b) => (b.puntos - a.puntos) || a.nombre.localeCompare(b.nombre));
+          .sort((a, b) => {
+            const posA = a.posicion ?? Infinity;
+            const posB = b.posicion ?? Infinity;
+            if (posA !== posB) return posA - posB;
+            return b.puntos - a.puntos;
+          });
+
         if (jugadores.length > 0) {
           groups.push({ categoria: cat, division: div, jugadores });
         }
@@ -484,40 +580,26 @@ export default function AdminPanel({
   };
 
   // Aplica los movimientos calculados: actualiza categoría de cada jugador,
-  // opcionalmente reinicia puntos, y guarda un registro en 'seasons'.
+  // ajusta la posición de los jugadores según la nueva categoría, y guarda un registro en 'seasons'.
   const handleCloseSeason = async () => {
     if (!seasonPreview) return;
     setSeasonLoading(true);
     try {
       const batch = writeBatch(db);
+      const sortedCategories = [...categories].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
 
       seasonPreview.forEach(mov => {
         const playerRef = doc(db, 'players', mov.playerId);
+        const catIdx = sortedCategories.findIndex(c => c.name === mov.toCategoria);
+        const newPos = catIdx !== -1 ? (catIdx * 4 + 1) : 1;
+
         const updates: any = {
           categoria: mov.toCategoria,
+          posicion: newPos,
           updatedAt: new Date().toISOString(),
         };
-        if (resetPointsOnClose) {
-          updates.puntos = 1000;
-        }
         batch.update(playerRef, updates);
       });
-
-      // Si se ha marcado reiniciar puntos, hacerlo también para quienes NO
-      // tienen movimiento (se quedan en su categoría) para que la temporada
-      // arranque igualada para todos.
-      if (resetPointsOnClose) {
-        const movedIds = new Set(seasonPreview.map(m => m.playerId));
-        players.forEach(p => {
-          const isA = p.email === 'alvaroestradacabello@gmail.com' || adminIds.includes(p.id);
-          if (!isA && !movedIds.has(p.id)) {
-            batch.update(doc(db, 'players', p.id), {
-              puntos: 1000,
-              updatedAt: new Date().toISOString(),
-            });
-          }
-        });
-      }
 
       // Registrar el cierre de temporada en el historial
       const seasonRef = doc(collection(db, 'seasons'));
@@ -526,21 +608,21 @@ export default function AdminPanel({
         closedBy: currentUser?.uid ?? 'admin',
         closedByName: currentUser?.displayName || currentUser?.email || 'Administrador',
         movimientos: seasonPreview,
-        puntosReiniciados: resetPointsOnClose,
+        puntosReiniciados: false,
         totalJugadoresAfectados: seasonPreview.length,
       };
       batch.set(seasonRef, seasonDoc);
 
       await batch.commit();
 
-      showToast(`¡Temporada cerrada! ${seasonPreview.length} jugador(es) cambiaron de categoría.`);
+      showToast(`¡Jornada cerrada! ${seasonPreview.length} jugador(es) cambiaron de categoría.`);
       setSeasonPreview(null);
       setSeasonConfirmStep(0);
       setResetPointsOnClose(false);
       if (onRefreshData) onRefreshData();
     } catch (error) {
       console.error("Error closing season:", error);
-      showError("Error al cerrar la temporada. Revisa las reglas de Firestore.");
+      showError("Error al cerrar la jornada. Revisa las reglas de Firestore.");
     } finally {
       setSeasonLoading(false);
     }
@@ -626,6 +708,60 @@ export default function AdminPanel({
       showError("Error al crear los partidos. Revisa las reglas de Firestore.");
     } finally {
       setExcelCreating(false);
+    }
+  };
+
+  const handlePreviewGroupMatches = () => {
+    const preview = buildAllGroupPreviews(players, adminIds);
+    setGroupMatchesPreview(preview);
+  };
+
+  const handleCreateGroupMatches = async () => {
+    if (!groupMatchesPreview || groupMatchesPreview.grupos.length === 0) return;
+    setGroupMatchesCreating(true);
+    try {
+      const batch = writeBatch(db);
+      let count = 0;
+
+      groupMatchesPreview.grupos.forEach(g => {
+        g.matches.forEach(m => {
+          const matchRef = doc(collection(db, 'matches'));
+          const newMatch = {
+            id: matchRef.id,
+            type: '2vs2',
+            categoria: '',
+            division: m.division,
+            grupo: m.grupo,
+            playerA1Id: m.playerA1.id,
+            playerA1Name: `${m.playerA1.nombre} ${m.playerA1.apellidos}`,
+            playerA2Id: m.playerA2.id,
+            playerA2Name: `${m.playerA2.nombre} ${m.playerA2.apellidos}`,
+            playerB1Id: m.playerB1.id,
+            playerB1Name: `${m.playerB1.nombre} ${m.playerB1.apellidos}`,
+            playerB2Id: m.playerB2.id,
+            playerB2Name: `${m.playerB2.nombre} ${m.playerB2.apellidos}`,
+            set1A: 0, set1B: 0, set2A: 0, set2B: 0, set3A: null, set3B: null,
+            winner: 'playing',
+            isReto: 'none',
+            pointsChange: 0,
+            playedAt: null,
+            createdAt: new Date().toISOString(),
+            scheduledAt: groupMatchesDate && groupMatchesTime ? `${groupMatchesDate}T${groupMatchesTime}:00` : new Date().toISOString(),
+          };
+          batch.set(matchRef, newMatch);
+          count += 1;
+        });
+      });
+
+      await batch.commit();
+      showToast(`¡${count} partido(s) de jornada creado(s) a partir de los grupos actuales!`);
+      setGroupMatchesPreview(null);
+      if (onRefreshData) onRefreshData();
+    } catch (error) {
+      console.error("Error creating group matches:", error);
+      showError("Error al crear los partidos de la jornada. Revisa las reglas de Firestore.");
+    } finally {
+      setGroupMatchesCreating(false);
     }
   };
 
@@ -863,6 +999,61 @@ export default function AdminPanel({
       .sort((a, b) => (a.posicion ?? 0) - (b.posicion ?? 0))
       .map(p => ({ playerId: p.id, playerName: `${p.nombre} ${p.apellidos}`, posicion: p.posicion! }));
   }, [players, jornadaDivision, jornadaGrupo]);
+
+  const partidosJugadosGrupo = React.useMemo(() => {
+    return matches.filter(m => 
+      m.division === jornadaDivision && 
+      m.grupo === jornadaGrupo && 
+      m.winner !== 'playing' && 
+      (!m.isReto || m.isReto === 'none')
+    );
+  }, [matches, jornadaDivision, jornadaGrupo]);
+
+  // Autocompletar juegos ganados/perdidos desde partidos de grupo jugados
+  React.useEffect(() => {
+    if (partidosJugadosGrupo.length > 0 && jugadoresDelGrupo.length > 0) {
+      const calculated: Record<string, { ganados: string; perdidos: string }> = {};
+      
+      jugadoresDelGrupo.forEach(j => {
+        calculated[j.playerId] = { ganados: '0', perdidos: '0' };
+      });
+
+      partidosJugadosGrupo.forEach(m => {
+        if (m.playerA1Id && calculated[m.playerA1Id] !== undefined) {
+          const prev = calculated[m.playerA1Id];
+          calculated[m.playerA1Id] = {
+            ganados: (parseInt(prev.ganados) + (m.set1A || 0)).toString(),
+            perdidos: (parseInt(prev.perdidos) + (m.set1B || 0)).toString()
+          };
+        }
+        if (m.playerA2Id && calculated[m.playerA2Id] !== undefined) {
+          const prev = calculated[m.playerA2Id];
+          calculated[m.playerA2Id] = {
+            ganados: (parseInt(prev.ganados) + (m.set1A || 0)).toString(),
+            perdidos: (parseInt(prev.perdidos) + (m.set1B || 0)).toString()
+          };
+        }
+        if (m.playerB1Id && calculated[m.playerB1Id] !== undefined) {
+          const prev = calculated[m.playerB1Id];
+          calculated[m.playerB1Id] = {
+            ganados: (parseInt(prev.ganados) + (m.set1B || 0)).toString(),
+            perdidos: (parseInt(prev.perdidos) + (m.set1A || 0)).toString()
+          };
+        }
+        if (m.playerB2Id && calculated[m.playerB2Id] !== undefined) {
+          const prev = calculated[m.playerB2Id];
+          calculated[m.playerB2Id] = {
+            ganados: (parseInt(prev.ganados) + (m.set1B || 0)).toString(),
+            perdidos: (parseInt(prev.perdidos) + (m.set1A || 0)).toString()
+          };
+        }
+      });
+
+      setJornadaJuegos(calculated);
+    } else {
+      setJornadaJuegos({});
+    }
+  }, [partidosJugadosGrupo, jugadoresDelGrupo]);
 
   const handleCalcularJornada = () => {
     if (jugadoresDelGrupo.length < 2) {
@@ -1195,16 +1386,22 @@ export default function AdminPanel({
     setGestorSavingId(player.id);
     try {
       const batch = writeBatch(db);
+      const sortedCategories = [...categories].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+
       // Swap positions
       const neighbor = sameDivPlayers.find(p => p.posicion === targetPos);
       if (neighbor) {
+        const neighborCat = sortedCategories[getGrupo(oldPos) - 1]?.name || neighbor.categoria;
         batch.update(doc(db, 'players', neighbor.id), {
           posicion: oldPos,
+          categoria: neighborCat,
           updatedAt: new Date().toISOString()
         });
       }
+      const playerCat = sortedCategories[getGrupo(targetPos) - 1]?.name || player.categoria;
       batch.update(doc(db, 'players', player.id), {
         posicion: targetPos,
+        categoria: playerCat,
         updatedAt: new Date().toISOString()
       });
       await batch.commit();
@@ -1237,6 +1434,7 @@ export default function AdminPanel({
     setGestorSavingId(player.id);
     try {
       const batch = writeBatch(db);
+      const sortedCategories = [...categories].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
 
       const orderedList = [...sameDivPlayers];
       const [removedPlayer] = orderedList.splice(playerIndex, 1);
@@ -1244,9 +1442,11 @@ export default function AdminPanel({
 
       orderedList.forEach((p, idx) => {
         const assignedPos = idx + 1;
-        if (p.posicion !== assignedPos) {
+        const assignedCat = sortedCategories[getGrupo(assignedPos) - 1]?.name || p.categoria;
+        if (p.posicion !== assignedPos || p.categoria !== assignedCat) {
           batch.update(doc(db, 'players', p.id), {
             posicion: assignedPos,
+            categoria: assignedCat,
             updatedAt: new Date().toISOString()
           });
         }
@@ -1266,11 +1466,16 @@ export default function AdminPanel({
     if (player.categoria === newCatName) return;
     setGestorSavingId(player.id);
     try {
+      const sortedCategories = [...categories].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+      const catIdx = sortedCategories.findIndex(c => c.name === newCatName);
+      const newPos = catIdx !== -1 ? (catIdx * 4 + 1) : (player.posicion || 1);
+
       await setDoc(doc(db, 'players', player.id), {
         categoria: newCatName,
+        posicion: newPos,
         updatedAt: new Date().toISOString()
       }, { merge: true });
-      showToast(`¡Grupo de ${player.nombre} cambiado a ${newCatName}!`);
+      showToast(`¡Grupo de ${player.nombre} cambiado a ${newCatName} (Puesto #${newPos})!`);
     } catch (err) {
       console.error(err);
       showError('Error al cambiar de grupo.');
@@ -1302,7 +1507,7 @@ export default function AdminPanel({
         {([
           { id: 'jugadores', label: 'Jugadores y Partidos', icon: UserPlus },
           { id: 'escalera', label: 'Escalera (Jornadas)', icon: ArrowUpDown },
-          { id: 'categorias', label: 'Grupos y Temporada', icon: ListCollapse },
+          { id: 'categorias', label: 'Grupos y Niveles', icon: ListCollapse },
           { id: 'sistema', label: 'Sistema y Administración', icon: Shield },
         ] as const).map(({ id, label, icon: Icon }) => (
           <button
@@ -1472,107 +1677,113 @@ export default function AdminPanel({
           </div>
         )}
 
-        {/* Generador de Partidos Semanales desde Excel */}
-        <div className="glass-card rounded-2xl border border-sky-500/15 bg-sky-950/5 shadow-2xl p-5 sm:p-6 text-ink">
+        {/* Generador de Partidos de la Jornada desde los Grupos Actuales de la Escalera */}
+        <div className="glass-card rounded-2xl border border-emerald-500/15 bg-emerald-950/5 shadow-2xl p-5 sm:p-6 text-ink">
           <h2 className="font-display text-xl font-black text-ink flex items-center gap-2.5 border-b border-[var(--border-subtle)] pb-3 mb-5">
-            <FileSpreadsheet className="h-5 w-5 text-sky-400" />
-            <span>Generar Partidos Semanales desde Excel</span>
+            <ListOrdered className="h-5 w-5 text-emerald-400" />
+            <span>Generar Partidos de la Jornada (Grupos Actuales)</span>
           </h2>
 
-          <p className="text-ink-muted text-[11px] leading-relaxed mb-4">
-            Descarga una plantilla con sugerencias de enfrentamientos según la clasificación actual, edítala a tu gusto y súbela para crear todos los partidos de golpe.
+          <p className="text-ink-muted text-[11px] leading-relaxed mb-5">
+            Genera automáticamente, a partir de la posición actual de cada jugador en la escalera, los grupos de 4 y sus <strong className="text-ink">3 partidos de rotación</strong> (cruzándose entre los 4 miembros del grupo), sin necesidad de Excel. No se crea nada hasta que confirmes la vista previa.
           </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5 p-4 bg-[var(--surface-2)] rounded-2xl border border-[var(--border-subtle)]">
+            <div className="space-y-1.5">
+              <label className="text-xs font-mono uppercase tracking-wider text-emerald-400 font-bold">Fecha de la Jornada</label>
+              <input
+                type="date"
+                value={groupMatchesDate}
+                onChange={(e) => setGroupMatchesDate(e.target.value)}
+                className="w-full bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-xl px-4 py-2.5 text-sm text-ink focus:outline-hidden focus:border-emerald-500 transition-colors"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-mono uppercase tracking-wider text-emerald-400 font-bold">Hora de Inicio Estimada</label>
+              <input
+                type="time"
+                value={groupMatchesTime}
+                onChange={(e) => setGroupMatchesTime(e.target.value)}
+                className="w-full bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-xl px-4 py-2.5 text-sm text-ink focus:outline-hidden focus:border-emerald-500 transition-colors"
+              />
+            </div>
+          </div>
 
           <div className="flex flex-wrap gap-2.5 mb-4">
             <button
               type="button"
-              onClick={handleDownloadTemplate}
-              className="flex items-center gap-2 bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-400 font-black text-xs uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all cursor-pointer"
+              onClick={handlePreviewGroupMatches}
+              className="flex items-center gap-2 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-400 font-black text-xs uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all cursor-pointer"
             >
-              <Download className="h-4 w-4" />
-              <span>Descargar Plantilla</span>
+              <ListOrdered className="h-4 w-4" />
+              <span>Ver Partidos Según Grupos Actuales</span>
             </button>
-
-            <button
-              type="button"
-              onClick={() => excelFileInputRef.current?.click()}
-              disabled={excelLoading}
-              className="flex items-center gap-2 bg-[var(--surface-2)] hover:bg-[var(--surface-2)] border border-[var(--border-strong)] text-ink font-black text-xs uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all cursor-pointer disabled:opacity-50"
-            >
-              {excelLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-              <span>{excelFileName ? 'Subir Otro Excel' : 'Subir Excel Rellenado'}</span>
-            </button>
-            <input
-              ref={excelFileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={handleExcelFileChange}
-              className="hidden"
-            />
           </div>
 
-          {excelFileName && !excelLoading && (
-            <p className="text-[10px] text-ink-faint mb-3 font-mono">Archivo: {excelFileName}</p>
-          )}
-
-          {/* Vista previa de filas parseadas */}
-          {excelRows && (
+          {groupMatchesPreview && (
             <div className="space-y-3">
-              <div className="flex items-center gap-4 text-[11px] font-bold">
+              <div className="flex items-center gap-4 text-[11px] font-bold flex-wrap">
                 <span className="flex items-center gap-1.5 text-emerald-400">
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  {excelRows.filter(r => r.status === 'ok').length} listos para crear
+                  {groupMatchesPreview.grupos.length} grupo(s) completo(s) · {groupMatchesPreview.grupos.length * 3} partido(s) a crear
                 </span>
-                {excelRows.some(r => r.status === 'error') && (
-                  <span className="flex items-center gap-1.5 text-rose-400">
-                    <XCircle className="h-3.5 w-3.5" />
-                    {excelRows.filter(r => r.status === 'error').length} con error (se omitirán)
+                {groupMatchesPreview.incompletos.length > 0 && (
+                  <span className="flex items-center gap-1.5 text-amber-400">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    {groupMatchesPreview.incompletos.length} grupo(s) incompleto(s) (se omiten)
                   </span>
                 )}
               </div>
 
-              <div className="bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-xl max-h-80 overflow-y-auto divide-y divide-[var(--border-subtle)] custom-scrollbar">
-                {excelRows.map((row, i) => (
-                  <div key={i} className="flex items-start gap-2.5 p-2.5 text-[11px]">
-                    {row.status === 'ok' ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                    ) : (
-                      <XCircle className="h-3.5 w-3.5 text-rose-400 shrink-0 mt-0.5" />
-                    )}
-                    <div className="flex-1">
-                      <div className="flex items-center gap-1.5 font-mono text-ink-muted">
-                        <span className="text-ink-faint">F{row.rowIndex}</span>
-                        <Swords className="h-3 w-3 text-ink-faint" />
-                        <span className="font-bold text-ink">
-                          {row.nombreA1}{row.nombreA2 ? ` & ${row.nombreA2}` : ''}
-                        </span>
-                        <span className="text-ink-faint">vs</span>
-                        <span className="font-bold text-ink">
-                          {row.nombreB1}{row.nombreB2 ? ` & ${row.nombreB2}` : ''}
-                        </span>
-                        <span className="text-ink-faint ml-1">({row.categoria} · {row.division})</span>
-                      </div>
-                      {row.status === 'error' && (
-                        <p className="text-rose-400/80 mt-0.5">{row.errorMsg}</p>
-                      )}
+              {groupMatchesPreview.grupos.length === 0 && (
+                <p className="text-ink-faint text-xs italic">No hay ningún grupo completo de 4 jugadores con posición asignada todavía.</p>
+              )}
+
+              <div className="bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-xl max-h-96 overflow-y-auto divide-y divide-[var(--border-subtle)] custom-scrollbar">
+                {groupMatchesPreview.grupos.map((g, gi) => (
+                  <div key={gi} className="p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${g.division === 'Masculina' ? 'text-sky-400 bg-sky-500/10 border border-sky-500/20' : 'text-pink-400 bg-pink-500/10 border border-pink-500/20'}`}>
+                        {g.division}
+                      </span>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-ink-muted">Grupo {g.grupo}</span>
+                      <span className="text-[10px] text-ink-faint">({g.jugadores.map(j => j.nombre).join(', ')})</span>
+                    </div>
+                    <div className="space-y-1">
+                      {g.matches.map((m, mi) => (
+                        <div key={mi} className="flex items-center gap-1.5 text-[11px] font-mono text-ink-muted pl-1">
+                          <Swords className="h-3 w-3 text-ink-faint shrink-0" />
+                          <span className="font-bold text-ink">{m.playerA1.nombre} &amp; {m.playerA2.nombre}</span>
+                          <span className="text-ink-faint">vs</span>
+                          <span className="font-bold text-ink">{m.playerB1.nombre} &amp; {m.playerB2.nombre}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ))}
               </div>
 
+              {groupMatchesPreview.incompletos.length > 0 && (
+                <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl p-3 text-[10px] text-amber-400/90 space-y-1">
+                  {groupMatchesPreview.incompletos.map((inc, i) => (
+                    <p key={i}>Grupo {inc.grupo}: solo {inc.jugadores.length} jugador(es) con posición ({inc.jugadores.map(j => j.nombre).join(', ') || '—'}).</p>
+                  ))}
+                </div>
+              )}
+
               <div className="flex flex-wrap items-center gap-2.5 pt-1">
                 <button
                   type="button"
-                  onClick={handleCreateMatchesFromExcel}
-                  disabled={excelCreating || excelRows.filter(r => r.status === 'ok').length === 0}
+                  onClick={handleCreateGroupMatches}
+                  disabled={groupMatchesCreating || groupMatchesPreview.grupos.length === 0}
                   className="flex items-center gap-2 bg-ball hover:bg-ball-hover disabled:opacity-30 text-black font-black text-xs uppercase tracking-wider px-5 py-2.5 rounded-xl transition-all cursor-pointer"
                 >
-                  {excelCreating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />}
-                  <span>Crear {excelRows.filter(r => r.status === 'ok').length} Partido(s)</span>
+                  {groupMatchesCreating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />}
+                  <span>Crear {groupMatchesPreview.grupos.length * 3} Partido(s)</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setExcelRows(null); setExcelFileName(null); }}
+                  onClick={() => setGroupMatchesPreview(null)}
                   className="text-ink-faint hover:text-ink-muted text-xs font-bold uppercase tracking-wider px-3 py-2.5 cursor-pointer"
                 >
                   Cancelar
@@ -1921,6 +2132,32 @@ export default function AdminPanel({
             </div>
           </div>
 
+          {jugadoresDelGrupo.length > 0 && (
+            <div className={`mb-4 p-3 rounded-xl border text-[11px] leading-relaxed flex items-start gap-2.5 ${
+              partidosJugadosGrupo.length > 0
+                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+            }`}>
+              {partidosJugadosGrupo.length > 0 ? (
+                <>
+                  <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 animate-pulse text-emerald-400" />
+                  <div>
+                    <span className="font-bold uppercase tracking-wider block mb-0.5">Juegos Auto-calculados ({partidosJugadosGrupo.length}/3 partidos)</span>
+                    Se han cargado automáticamente los juegos ganados y perdidos a partir de los <strong>{partidosJugadosGrupo.length}</strong> partidos jugados registrados para este grupo esta semana. Puedes editarlos manualmente si es necesario.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0 text-amber-400" />
+                  <div>
+                    <span className="font-bold uppercase tracking-wider block mb-0.5">Sin partidos registrados</span>
+                    No hay partidos jugados registrados para este grupo. Puedes ingresar los juegos manualmente o registrar los marcadores primero en la pestaña "Partidos" para que se calculen solos.
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {jugadoresDelGrupo.length === 0 ? (
             <p className="text-ink-faint text-xs italic">No hay jugadores con posición asignada en este grupo.</p>
           ) : (
@@ -2039,9 +2276,10 @@ export default function AdminPanel({
                   .sort((a, b) => a.division.localeCompare(b.division) || a.posicion! - b.posicion!)
                   .map(p => {
                     const grupo = Math.ceil(p.posicion! / 4);
+                    const grupoName = categories[grupo - 1]?.name || `Grupo ${grupo}`;
                     return (
                       <option key={p.id} value={p.id} className="bg-slate-900 text-ink">
-                        [{p.division}] #{p.posicion} - {p.nombre} {p.apellidos} (Grupo {grupo})
+                        [{p.division}] #{p.posicion} - {p.nombre} {p.apellidos} ({grupoName})
                       </option>
                     );
                   })}
@@ -2075,14 +2313,14 @@ export default function AdminPanel({
                     <div className="flex items-center gap-2 font-mono">
                       <span className="text-ink-faint">#{mov.posicionAntes}</span>
                       <span className="text-ink-faint font-sans text-[10px] ml-1">
-                        (Grupo {Math.ceil(mov.posicionAntes / 4)})
+                        ({categories[Math.ceil(mov.posicionAntes / 4) - 1]?.name || `Grupo ${Math.ceil(mov.posicionAntes / 4)}`})
                       </span>
                       <span className="text-ink-faint">→</span>
                       <span className={mov.posicionDespues < mov.posicionAntes ? 'text-emerald-500 font-bold' : mov.posicionDespues > mov.posicionAntes ? 'text-rose-500 font-bold' : 'text-ink-muted font-bold'}>
                         #{mov.posicionDespues}
                       </span>
                       <span className="text-ink-faint font-sans text-[10px] ml-1">
-                        (Grupo {Math.ceil(mov.posicionDespues / 4)})
+                        ({categories[Math.ceil(mov.posicionDespues / 4) - 1]?.name || `Grupo ${Math.ceil(mov.posicionDespues / 4)}`})
                       </span>
                       {mov.posicionDespues < mov.posicionAntes && <TrendingUp className="h-3.5 w-3.5 text-emerald-500" />}
                       {mov.posicionDespues > mov.posicionAntes && <TrendingDown className="h-3.5 w-3.5 text-rose-500" />}
@@ -2260,7 +2498,9 @@ export default function AdminPanel({
               {[...jornadas].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 15).map(j => (
                 <div key={j.id} className="bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-xl p-3 text-[11px]">
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="font-bold text-ink">Grupo {j.grupo} · {j.division}</span>
+                    <span className="font-bold text-ink">
+                      {(categories[Number(j.grupo) - 1]?.name || `Grupo ${j.grupo}`)} · {j.division}
+                    </span>
                     <span className="text-ink-faint">{new Date(j.fecha).toLocaleDateString('es-ES')}</span>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
@@ -2275,6 +2515,157 @@ export default function AdminPanel({
             </div>
           </div>
         )}
+
+        {/* ── Cierre de Jornada: Ascensos y Descensos ──────────────────────── */}
+        <div className="glass-card rounded-2xl border border-amber-500/15 bg-amber-950/5 shadow-2xl p-5 sm:p-6 text-ink antialiased mt-6">
+          <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3 mb-5">
+            <h2 className="font-display text-xl font-black text-ink flex items-center gap-2.5">
+              <History className="h-5 w-5 text-amber-400" />
+              <span>Cierre de Jornada · Ascensos y Descensos</span>
+            </h2>
+            {seasons.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowSeasonHistory(s => !s)}
+                className="text-[10px] font-bold uppercase tracking-wider text-ink-faint hover:text-ink-muted flex items-center gap-1.5 cursor-pointer"
+              >
+                <Eye className="h-3.5 w-3.5" />
+                {showSeasonHistory ? 'Ocultar historial de cierres' : `Ver historial de cierres (${seasons.length})`}
+              </button>
+            )}
+          </div>
+
+          <p className="text-ink-muted text-[11px] leading-relaxed mb-4">
+            Calcula quién asciende y quién desciende de categoría según las posiciones actuales de la escalera y la configuración de "Suben/Bajan" de cada categoría. No se aplica nada hasta que confirmes el cierre de la jornada.
+          </p>
+
+          {/* Historial de jornadas cerradas */}
+          {showSeasonHistory && (
+            <div className="mb-5 bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-xl max-h-64 overflow-y-auto divide-y divide-[var(--border-subtle)] custom-scrollbar">
+              {seasons.map(season => (
+                <div key={season.id} className="p-3 text-xs">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="font-bold text-ink">
+                      {new Date(season.closedAt).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })}
+                    </span>
+                    <span className="text-ink-faint text-[10px]">{season.totalJugadoresAfectados} movimiento(s) · por {season.closedByName}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {season.movimientos.map((m, i) => (
+                      <span
+                        key={i}
+                        className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                          m.tipo === 'ascenso'
+                            ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                            : 'bg-rose-500/15 text-rose-400 border border-rose-500/20'
+                        }`}
+                      >
+                        {m.playerName}: {m.fromCategoria} → {m.toCategoria}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Botón inicial: calcular preview */}
+          {seasonConfirmStep === 0 && (
+            <button
+              type="button"
+              onClick={handleCalculateSeasonPreview}
+              className="flex items-center gap-2 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-400 font-black text-xs uppercase tracking-wider px-5 py-3 rounded-xl transition-all cursor-pointer"
+            >
+              <Eye className="h-4 w-4" />
+              <span>Calcular Vista Previa</span>
+            </button>
+          )}
+
+          {/* Vista previa de movimientos */}
+          {seasonConfirmStep >= 1 && seasonPreview && (
+            <div className="space-y-4">
+              {seasonPreview.length === 0 ? (
+                <div className="bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-xl p-4 text-center text-ink-muted text-xs">
+                  No hay movimientos que aplicar. Revisa que las categorías tengan configurado "Suben" / "Bajan" mayor que 0.
+                </div>
+              ) : (
+                <div className="bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-xl max-h-72 overflow-y-auto divide-y divide-[var(--border-subtle)] custom-scrollbar">
+                  {seasonPreview.map((mov, i) => (
+                    <div key={i} className="flex items-center justify-between p-3 text-xs">
+                      <div className="flex items-center gap-2.5">
+                        {mov.tipo === 'ascenso' ? (
+                          <TrendingUp className="h-4 w-4 text-emerald-400 shrink-0" />
+                        ) : (
+                          <TrendingDown className="h-4 w-4 text-rose-400 shrink-0" />
+                        )}
+                        <div>
+                          <span className="font-bold text-ink">{mov.playerName}</span>
+                          <span className="text-ink-faint ml-2 font-mono text-[10px]">{mov.division}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 font-mono text-[11px]">
+                        <span className="text-ink-muted">{mov.fromCategoria}</span>
+                        <span className="text-ink-faint">→</span>
+                        <span className={mov.tipo === 'ascenso' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                          {mov.toCategoria}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Botones de acción */}
+              <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                {seasonConfirmStep === 1 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setSeasonConfirmStep(2)}
+                      disabled={!seasonPreview.length}
+                      className="flex items-center gap-2 bg-rose-950 hover:bg-rose-900 border border-rose-500/30 hover:border-rose-500/50 text-rose-400 disabled:opacity-30 font-black text-xs uppercase tracking-wider px-5 py-3 rounded-xl transition-all cursor-pointer"
+                    >
+                      <Lock className="h-4 w-4" />
+                      <span>Cerrar Jornada y Aplicar Cambios</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSeasonPreview(null); setSeasonConfirmStep(0); }}
+                      className="text-ink-faint hover:text-ink-muted text-xs font-bold uppercase tracking-wider px-3 py-3 cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                  </>
+                )}
+
+                {seasonConfirmStep === 2 && (
+                  <div className="flex items-center gap-2 bg-rose-500/10 border border-rose-500/20 p-2.5 rounded-xl w-full">
+                    <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
+                    <span className="text-[11px] text-rose-400 font-bold flex-1">
+                      ¿Confirmas? Esto moverá a {seasonPreview.length} jugador(es) de categoría. No se puede deshacer automáticamente.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleCloseSeason}
+                      disabled={seasonLoading}
+                      className="bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-ink font-black text-[10px] uppercase px-3 py-1.5 rounded-lg cursor-pointer whitespace-nowrap"
+                    >
+                      {seasonLoading ? 'Aplicando...' : 'SÍ, CERRAR JORNADA'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSeasonConfirmStep(1)}
+                      disabled={seasonLoading}
+                      className="bg-[var(--surface-2)] hover:bg-[var(--surface-2)] text-ink font-black text-[10px] uppercase px-3 py-1.5 rounded-lg cursor-pointer whitespace-nowrap"
+                    >
+                      CANCELAR
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
       )}
 
@@ -2316,7 +2707,7 @@ export default function AdminPanel({
               Los grupos agregados se actualizarán instantáneamente y estarán disponibles para clasificar jugadores, agendar enfrentamientos y filtrar tablas.
             </p>
             <p className="text-ink-faint text-[10px] font-sans leading-relaxed bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-lg p-2.5">
-              <strong className="text-ink-muted">Regla de Ascensos y Descensos (Temporadas):</strong> En cada grupo siempre subirá exactly 1 jugador y bajará 1 (por división), salvo en el grupo más alto que no subirá nadie (0) y en el grupo más bajo que no bajará nadie (0).
+              <strong className="text-ink-muted">Regla de Ascensos y Descensos (Jornadas):</strong> En cada grupo siempre subirá exactly 1 jugador y bajará 1 (por división), salvo en el grupo más alto que no subirá nadie (0) y en el grupo más bajo que no bajará nadie (0).
             </p>
           </form>
 
@@ -2330,68 +2721,117 @@ export default function AdminPanel({
                 categories.map((cat, idx) => (
                   <div key={cat.id} className="flex flex-col gap-2 p-3 hover:bg-[var(--surface-2)] transition-all">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold tracking-wide text-slate-100">{cat.name}</span>
-                      <div className="flex items-center gap-1.5">
-                        {/* Reordering Controls */}
-                        <button
-                          type="button"
-                          disabled={idx === 0}
-                          onClick={() => handleMoveCategory(cat.id, 'up')}
-                          className="text-ink-faint hover:text-ball-safe p-1.5 rounded-lg hover:bg-[var(--surface-2)] transition-all disabled:opacity-20 disabled:hover:text-ink-faint disabled:hover:bg-transparent cursor-pointer"
-                          title="Subir"
-                        >
-                          <ChevronUp className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          disabled={idx === categories.length - 1}
-                          onClick={() => handleMoveCategory(cat.id, 'down')}
-                          className="text-ink-faint hover:text-ball-safe p-1.5 rounded-lg hover:bg-[var(--surface-2)] transition-all disabled:opacity-20 disabled:hover:text-ink-faint disabled:hover:bg-transparent cursor-pointer"
-                          title="Bajar"
-                        >
-                          <ChevronDown className="h-4 w-4" />
-                        </button>
-
-                        <div className="w-px h-4 bg-[var(--surface-2)] mx-1 shadow-xs" />
-
-                        {deleteConfirmCatId === cat.id ? (
-                          <div className="flex items-center gap-1 bg-rose-500/10 border border-rose-500/20 p-1.5 rounded-lg">
-                            <span className="text-[9px] text-rose-400 font-bold px-1 uppercase tracking-wider">¿Borrar?</span>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                try {
-                                  await deleteDoc(doc(db, 'categories', cat.id));
-                                  showToast(`¡Grupo "${cat.name}" eliminado!`);
-                                  setDeleteConfirmCatId(null);
-                                } catch (err: any) {
-                                  console.error("Error deleting category:", err);
-                                  showError("Error al eliminar el grupo");
-                                }
-                              }}
-                              className="px-1.5 py-0.5 bg-rose-500 hover:bg-rose-600 text-ink text-[10px] font-mono font-bold rounded"
-                            >
-                              Sí
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setDeleteConfirmCatId(null)}
-                              className="px-1.5 py-0.5 bg-[var(--surface-2)] hover:bg-[var(--surface-2)] text-ink text-[10px] font-mono font-bold rounded"
-                            >
-                              No
-                            </button>
-                          </div>
-                        ) : (
+                      {editingCategoryId === cat.id ? (
+                        <div className="flex items-center gap-1.5 flex-1 mr-2">
+                          <input
+                            type="text"
+                            value={editingCategoryName}
+                            onChange={(e) => setEditingCategoryName(e.target.value)}
+                            disabled={renamingLoading}
+                            className="bg-[var(--surface-input)] border border-ball text-sm text-ink rounded-lg py-1 px-2.5 w-full focus:outline-hidden"
+                            autoFocus
+                          />
                           <button
                             type="button"
-                            onClick={() => setDeleteConfirmCatId(cat.id)}
-                            className="text-ink-faint hover:text-red-400 p-1.5 rounded-lg hover:bg-red-500/10 transition-all cursor-pointer"
-                            title="Eliminar Grupo"
+                            onClick={() => handleRenameCategory(cat.id, cat.name, editingCategoryName)}
+                            disabled={renamingLoading}
+                            className="text-emerald-400 hover:text-emerald-300 p-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg cursor-pointer transition-all shrink-0"
+                            title="Guardar nombre"
                           >
-                            <Trash2 className="h-4 w-4" />
+                            {renamingLoading ? <RefreshCw className="h-4 w-4 animate-spin text-black" /> : <Check className="h-4 w-4" />}
                           </button>
-                        )}
-                      </div>
+                          <button
+                            type="button"
+                            onClick={() => setEditingCategoryId(null)}
+                            disabled={renamingLoading}
+                            className="text-rose-400 hover:text-rose-300 p-1.5 bg-rose-500/10 border border-rose-500/20 rounded-lg cursor-pointer transition-all shrink-0"
+                            title="Cancelar"
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-sm font-semibold tracking-wide text-slate-100">{cat.name}</span>
+                      )}
+
+                      {editingCategoryId !== cat.id && (
+                        <div className="flex items-center gap-1.5">
+                          {/* Reordering Controls */}
+                          <button
+                            type="button"
+                            disabled={idx === 0}
+                            onClick={() => handleMoveCategory(cat.id, 'up')}
+                            className="text-ink-faint hover:text-ball-safe p-1.5 rounded-lg hover:bg-[var(--surface-2)] transition-all disabled:opacity-20 disabled:hover:text-ink-faint disabled:hover:bg-transparent cursor-pointer"
+                            title="Subir"
+                          >
+                            <ChevronUp className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={idx === categories.length - 1}
+                            onClick={() => handleMoveCategory(cat.id, 'down')}
+                            className="text-ink-faint hover:text-ball-safe p-1.5 rounded-lg hover:bg-[var(--surface-2)] transition-all disabled:opacity-20 disabled:hover:text-ink-faint disabled:hover:bg-transparent cursor-pointer"
+                            title="Bajar"
+                          >
+                            <ChevronDown className="h-4 w-4" />
+                          </button>
+
+                          <div className="w-px h-4 bg-[var(--surface-2)] mx-1 shadow-xs" />
+
+                          {/* Pencil/Edit Rename Control */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingCategoryId(cat.id);
+                              setEditingCategoryName(cat.name);
+                            }}
+                            className="text-ink-faint hover:text-ball-safe p-1.5 rounded-lg hover:bg-[var(--surface-2)] transition-all cursor-pointer"
+                            title="Renombrar Grupo"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+
+                          <div className="w-px h-4 bg-[var(--surface-2)] mx-1 shadow-xs" />
+
+                          {deleteConfirmCatId === cat.id ? (
+                            <div className="flex items-center gap-1 bg-rose-500/10 border border-rose-500/20 p-1.5 rounded-lg">
+                              <span className="text-[9px] text-rose-400 font-bold px-1 uppercase tracking-wider">¿Borrar?</span>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    await deleteDoc(doc(db, 'categories', cat.id));
+                                    showToast(`¡Grupo "${cat.name}" eliminado!`);
+                                    setDeleteConfirmCatId(null);
+                                  } catch (err: any) {
+                                    console.error("Error deleting category:", err);
+                                    showError("Error al eliminar el grupo");
+                                  }
+                                }}
+                                className="px-1.5 py-0.5 bg-rose-500 hover:bg-rose-600 text-ink text-[10px] font-mono font-bold rounded"
+                              >
+                                Sí
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteConfirmCatId(null)}
+                                className="px-1.5 py-0.5 bg-[var(--surface-2)] hover:bg-[var(--surface-2)] text-ink text-[10px] font-mono font-bold rounded"
+                              >
+                                No
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setDeleteConfirmCatId(cat.id)}
+                              className="text-ink-faint hover:text-red-400 p-1.5 rounded-lg hover:bg-red-500/10 transition-all cursor-pointer"
+                              title="Eliminar Grupo"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* Configuración de ascensos/descensos por grupo */}
@@ -2411,175 +2851,6 @@ export default function AdminPanel({
             </div>
           </div>
         </div>
-      </div>
-
-      {/* ── Cierre de Temporada: Ascensos y Descensos ──────────────────────── */}
-      <div className="glass-card rounded-2xl border border-amber-500/15 bg-amber-950/5 shadow-2xl p-5 sm:p-6 text-ink antialiased">
-        <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3 mb-5">
-          <h2 className="font-display text-xl font-black text-ink flex items-center gap-2.5">
-            <History className="h-5 w-5 text-amber-400" />
-            <span>Cierre de Temporada · Ascensos y Descensos</span>
-          </h2>
-          {seasons.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowSeasonHistory(s => !s)}
-              className="text-[10px] font-bold uppercase tracking-wider text-ink-faint hover:text-ink-muted flex items-center gap-1.5 cursor-pointer"
-            >
-              <Eye className="h-3.5 w-3.5" />
-              {showSeasonHistory ? 'Ocultar historial' : `Ver historial (${seasons.length})`}
-            </button>
-          )}
-        </div>
-
-        <p className="text-ink-muted text-[11px] leading-relaxed mb-4">
-          Calcula quién asciende y quién desciende de categoría según los puntos actuales y la configuración de "Suben/Bajan" de cada categoría (arriba). No se aplica nada hasta que confirmes el cierre.
-        </p>
-
-        {/* Historial de temporadas cerradas */}
-        {showSeasonHistory && (
-          <div className="mb-5 bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-xl max-h-64 overflow-y-auto divide-y divide-[var(--border-subtle)] custom-scrollbar">
-            {seasons.map(season => (
-              <div key={season.id} className="p-3 text-xs">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="font-bold text-ink">
-                    {new Date(season.closedAt).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })}
-                  </span>
-                  <span className="text-ink-faint text-[10px]">{season.totalJugadoresAfectados} movimiento(s) · por {season.closedByName}</span>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {season.movimientos.map((m, i) => (
-                    <span
-                      key={i}
-                      className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
-                        m.tipo === 'ascenso'
-                          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
-                          : 'bg-rose-500/15 text-rose-400 border border-rose-500/20'
-                      }`}
-                    >
-                      {m.playerName}: {m.fromCategoria} → {m.toCategoria}
-                    </span>
-                  ))}
-                </div>
-                {season.puntosReiniciados && (
-                  <p className="text-[10px] text-amber-400/70 mt-1.5 italic">Los puntos se reiniciaron a 1000 en este cierre.</p>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Botón inicial: calcular preview */}
-        {seasonConfirmStep === 0 && (
-          <button
-            type="button"
-            onClick={handleCalculateSeasonPreview}
-            className="flex items-center gap-2 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-400 font-black text-xs uppercase tracking-wider px-5 py-3 rounded-xl transition-all cursor-pointer"
-          >
-            <Eye className="h-4 w-4" />
-            <span>Calcular Vista Previa</span>
-          </button>
-        )}
-
-        {/* Vista previa de movimientos */}
-        {seasonConfirmStep >= 1 && seasonPreview && (
-          <div className="space-y-4">
-            {seasonPreview.length === 0 ? (
-              <div className="bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-xl p-4 text-center text-ink-muted text-xs">
-                No hay movimientos que aplicar. Revisa que las categorías tengan configurado "Suben" / "Bajan" mayor que 0.
-              </div>
-            ) : (
-              <div className="bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-xl max-h-72 overflow-y-auto divide-y divide-[var(--border-subtle)] custom-scrollbar">
-                {seasonPreview.map((mov, i) => (
-                  <div key={i} className="flex items-center justify-between p-3 text-xs">
-                    <div className="flex items-center gap-2.5">
-                      {mov.tipo === 'ascenso' ? (
-                        <TrendingUp className="h-4 w-4 text-emerald-400 shrink-0" />
-                      ) : (
-                        <TrendingDown className="h-4 w-4 text-rose-400 shrink-0" />
-                      )}
-                      <div>
-                        <span className="font-bold text-ink">{mov.playerName}</span>
-                        <span className="text-ink-faint ml-2 font-mono text-[10px]">{mov.division}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 font-mono text-[11px]">
-                      <span className="text-ink-muted">{mov.fromCategoria}</span>
-                      <span className="text-ink-faint">→</span>
-                      <span className={mov.tipo === 'ascenso' ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
-                        {mov.toCategoria}
-                      </span>
-                      <span className="text-ink-faint ml-1">({mov.puntosAlCierre} pts)</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Opción de reinicio de puntos */}
-            <label className="flex items-start gap-2.5 bg-[var(--surface-2)] border border-[var(--border-subtle)] rounded-xl p-3 cursor-pointer hover:bg-[var(--surface-2)] transition-all">
-              <input
-                type="checkbox"
-                checked={resetPointsOnClose}
-                onChange={(e) => setResetPointsOnClose(e.target.checked)}
-                className="mt-0.5 accent-amber-400 cursor-pointer"
-              />
-              <span className="text-[11px] text-ink-muted leading-relaxed">
-                <strong className="text-ink">Reiniciar puntos a 1000 para todos los jugadores</strong> al cerrar la temporada (no solo los que cambian de categoría). Útil para empezar la nueva temporada igualados. Si lo dejas desmarcado, cada jugador conserva sus puntos actuales en su nueva categoría.
-              </span>
-            </label>
-
-            {/* Botones de acción */}
-            <div className="flex flex-wrap items-center gap-2.5 pt-1">
-              {seasonConfirmStep === 1 && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setSeasonConfirmStep(2)}
-                    disabled={!seasonPreview.length}
-                    className="flex items-center gap-2 bg-rose-950 hover:bg-rose-900 border border-rose-500/30 hover:border-rose-500/50 text-rose-400 disabled:opacity-30 font-black text-xs uppercase tracking-wider px-5 py-3 rounded-xl transition-all cursor-pointer"
-                  >
-                    <Lock className="h-4 w-4" />
-                    <span>Cerrar Temporada y Aplicar Cambios</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setSeasonPreview(null); setSeasonConfirmStep(0); }}
-                    className="text-ink-faint hover:text-ink-muted text-xs font-bold uppercase tracking-wider px-3 py-3 cursor-pointer"
-                  >
-                    Cancelar
-                  </button>
-                </>
-              )}
-
-              {seasonConfirmStep === 2 && (
-                <div className="flex items-center gap-2 bg-rose-500/10 border border-rose-500/20 p-2.5 rounded-xl w-full">
-                  <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
-                  <span className="text-[11px] text-rose-400 font-bold flex-1">
-                    ¿Confirmas? Esto moverá a {seasonPreview.length} jugador(es) de categoría
-                    {resetPointsOnClose ? ' y reiniciará los puntos de todos a 1000' : ''}. No se puede deshacer automáticamente.
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleCloseSeason}
-                    disabled={seasonLoading}
-                    className="bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-ink font-black text-[10px] uppercase px-3 py-1.5 rounded-lg cursor-pointer whitespace-nowrap"
-                  >
-                    {seasonLoading ? 'Aplicando...' : 'SÍ, CERRAR TEMPORADA'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSeasonConfirmStep(1)}
-                    disabled={seasonLoading}
-                    className="bg-[var(--surface-2)] hover:bg-[var(--surface-2)] text-ink font-black text-[10px] uppercase px-3 py-1.5 rounded-lg cursor-pointer whitespace-nowrap"
-                  >
-                    CANCELAR
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
       </>
       )}

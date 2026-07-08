@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Player, Category, DivisionType } from '../types';
-import { X, User as UserIcon, RefreshCw, Check, Award, AlertCircle } from 'lucide-react';
+import { X, User as UserIcon, RefreshCw, Check, Award, AlertCircle, RotateCcw } from 'lucide-react';
 
 interface EditPlayerModalProps {
   isOpen: boolean;
@@ -181,6 +181,31 @@ export default function EditPlayerModal({ isOpen, onClose, player, categories, o
               onChange={(e) => setPuntos(parseInt(e.target.value) || 0)}
               className="w-full bg-[var(--surface-input)] hover:bg-[var(--surface-input)] focus:bg-[var(--surface-input)] border border-[var(--border-subtle)] text-ink rounded-xl py-2 px-3 text-sm focus:outline-none focus:border-ball/50 transition-all font-mono text-accent font-bold"
             />
+          </div>
+
+          {/* Reset challenge cooldown button */}
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={async () => {
+                if (!player) return;
+                setLoading(true);
+                try {
+                  await onSave(player.id, { lastChallengeReset: new Date().toISOString() });
+                  setSuccess(true);
+                  setTimeout(() => setSuccess(false), 3000);
+                } catch (err) {
+                  setError("Error al reiniciar el tiempo de reto.");
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-xl font-bold text-xs transition-all cursor-pointer"
+            >
+              <RotateCcw className="h-4 w-4" />
+              <span>Reiniciar Tiempo de Reto (Habilitar para Retar)</span>
+            </button>
           </div>
 
           {/* Form Actions */}

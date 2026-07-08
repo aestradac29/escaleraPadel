@@ -30,8 +30,8 @@ service cloud.firestore {
              player.division is string && (player.division == 'Masculina' || player.division == 'Femenina') &&
              player.puntos is number && player.puntos >= 0 &&
              // posicion (Reglamento 2026, Art. 9): opcional mientras se completa la migración,
-             // pero si está presente debe ser un entero >= 1.
-             (!('posicion' in player) || (player.posicion is number && player.posicion >= 1));
+             // pero si está presente debe ser un entero >= 1 o null.
+             (!('posicion' in player) || player.posicion == null || (player.posicion is number && player.posicion >= 1));
     }
 
     function isValidMatch(matchData) {
@@ -185,6 +185,7 @@ service cloud.firestore {
     // ── Challenges (retos entre jugadores) ──────────────────────────────────
     match /challenges/{challengeId} {
       allow read: if true;
+      allow update: if isAdmin();
 
       // El retador crea su propio reto (siempre como challengerA1Id)
       allow create: if isSignedIn() &&

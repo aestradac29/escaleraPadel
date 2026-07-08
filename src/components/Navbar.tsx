@@ -1,7 +1,7 @@
 import React from 'react';
 import { auth } from '../firebase';
 import { signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { Shield, LogIn, LogOut, Trophy, Sun, Moon } from 'lucide-react';
+import { Shield, LogIn, LogOut, Swords, Sun, Moon } from 'lucide-react';
 import { Player } from '../types';
 
 interface NavbarProps {
@@ -63,7 +63,7 @@ export default function Navbar({
           {/* Logo Brand */}
           <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 shrink">
             <div className="bg-ball p-1.5 sm:p-2.5 rounded-xl text-black padel-glow flex items-center justify-center shrink-0">
-              <Trophy className="h-4 w-4 sm:h-5 sm:w-5 font-bold" />
+              <Swords className="h-4 w-4 sm:h-5 sm:w-5 font-bold" />
             </div>
             <div className="flex flex-col justify-center min-w-0">
               <span className="font-display text-[10px] sm:text-lg md:text-xl font-black tracking-tighter uppercase leading-none block text-ink truncate">
@@ -118,7 +118,7 @@ export default function Navbar({
                         {myProfile ? `${myProfile.nombre} ${myProfile.apellidos}` : (user.displayName || 'Mi Perfil')}
                       </span>
                       <span className="text-[9px] text-court font-mono leading-none tracking-wider font-semibold">
-                        {myProfile ? `${myProfile.puntos} PTS • ${myProfile.categoria}` : 'Completar datos'}
+                        {myProfile ? `${myProfile.categoria} • ${myProfile.division}` : 'Completar datos'}
                       </span>
                     </div>
                     {user.photoURL ? (

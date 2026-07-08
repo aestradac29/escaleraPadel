@@ -393,6 +393,18 @@ export default function App() {
     }
   };
 
+  // 3b. Action to reset challenge cooldown for a Player
+  const handleResetChallengeCooldown = async (id: string) => {
+    try {
+      await setDoc(doc(db, 'players', id), {
+        lastChallengeReset: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `players/${id}/resetChallengeCooldown`);
+    }
+  };
+
   // 4b. Reset entire tournament database & clean install default seeds
   const handleResetTournament = async () => {
     setLoading(true);
@@ -682,6 +694,16 @@ export default function App() {
   const handleSaveEditedPlayer = async (id: string, updatedData: Partial<Player>) => {
     try {
       const playerRef = doc(db, 'players', id);
+      
+      // Si se actualiza la categoría manualmente desde el modal, mantener alineada la posición
+      if (updatedData.categoria && !updatedData.posicion) {
+        const sortedCategories = [...categories].sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+        const catIdx = sortedCategories.findIndex(c => c.name === updatedData.categoria);
+        if (catIdx !== -1) {
+          updatedData.posicion = catIdx * 4 + 1;
+        }
+      }
+      
       await setDoc(playerRef, updatedData, { merge: true });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'players');
@@ -896,11 +918,13 @@ export default function App() {
                   <Ranking
                     players={players}
                     matches={matches}
+                    jornadas={jornadas}
                     categories={categories}
                     isAdminMode={isAdminMode}
                     sanctions={sanctions}
                     onEditPlayer={handleEditPlayerInitiate}
                     onDeletePlayer={handleDeletePlayer}
+                    onResetChallengeCooldown={handleResetChallengeCooldown}
                     myProfile={myProfile}
                     onChallengePlayer={handleChallengePlayerInitiate}
                     adminIds={adminIds}

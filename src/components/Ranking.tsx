@@ -1,16 +1,18 @@
 import React from 'react';
-import { Player, Match, Category, Sanction } from '../types';
-import { Award, Search, HelpCircle, Trophy, User as UserIcon, Activity, Flame, Edit2, Trash2, Gavel, Sword } from 'lucide-react';
+import { Player, Match, Category, Sanction, JornadaOficial } from '../types';
+import { Award, Search, HelpCircle, Trophy, User as UserIcon, Activity, Flame, Edit2, Trash2, Gavel, Sword, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getGrupo } from '../utils/escalera';
 
 interface RankingProps {
   players: Player[];
   matches: Match[];
+  jornadas?: JornadaOficial[];
   categories?: Category[];
   isAdminMode: boolean;
   onEditPlayer?: (player: Player) => void;
   onDeletePlayer?: (id: string) => void;
+  onResetChallengeCooldown?: (id: string) => Promise<void>;
   sanctions?: Sanction[];
   myProfile?: Player | null;
   onChallengePlayer?: (player: Player) => void;
@@ -20,10 +22,12 @@ interface RankingProps {
 export default function Ranking({
   players,
   matches,
+  jornadas = [],
   categories = [],
   isAdminMode,
   onEditPlayer,
   onDeletePlayer,
+  onResetChallengeCooldown,
   sanctions = [],
   myProfile,
   onChallengePlayer,
@@ -33,6 +37,7 @@ export default function Ranking({
   const [filterDivision, setFilterDivision] = React.useState<string>('Todas');
   const [searchQuery, setSearchQuery] = React.useState<string>('');
   const [deleteConfirmPlayerId, setDeleteConfirmPlayerId] = React.useState<string | null>(null);
+  const [resetCooldownConfirmPlayerId, setResetCooldownConfirmPlayerId] = React.useState<string | null>(null);
   const [showTiebreakerRules, setShowTiebreakerRules] = React.useState(false);
 
   // Pre-calculate user stats from match history including all tiebreaker criteria
@@ -93,11 +98,6 @@ export default function Ranking({
         // Juegos ganados
         map[pid].juegosGanados += gamesA;
 
-        // Primeros/Segundos puestos individually assigned (posA1 / posA2)
-        const pos = pid === pA1 ? m.posA1 : m.posA2;
-        if (pos === 1) map[pid].primerosPuestos++;
-        if (pos === 2) map[pid].segundosPuestos++;
-
         // Retos superados: if isReto is 'A' (A challenged B) and team A won
         if (m.isReto === 'A' && isWinnerA) {
           map[pid].retosSuperados++;
@@ -114,11 +114,6 @@ export default function Ranking({
         // Juegos ganados
         map[pid].juegosGanados += gamesB;
 
-        // Primeros/Segundos puestos
-        const pos = pid === pB1 ? m.posB1 : m.posB2;
-        if (pos === 1) map[pid].primerosPuestos++;
-        if (pos === 2) map[pid].segundosPuestos++;
-
         // Retos superados: if isReto is 'B' (B challenged A) and team B won
         if (m.isReto === 'B' && !isWinnerA) {
           map[pid].retosSuperados++;
@@ -126,8 +121,38 @@ export default function Ranking({
       });
     });
 
+    // Populate primeros/segundos puestos from completed official Jornadas (Art. 17 desempates)
+    jornadas.forEach(j => {
+      if (j.jugadores && j.jugadores.length > 0) {
+        // Encontrar puntuaciones de juegos ganados únicas de mayor a menor
+        const uniqueScores = Array.from(new Set(j.jugadores.map(jg => jg.juegosGanados))).sort((a, b) => b - a);
+        const firstScore = uniqueScores[0];
+        const secondScore = uniqueScores[1];
+
+        j.jugadores.forEach(jg => {
+          if (map[jg.playerId]) {
+            if (jg.juegosGanados === firstScore) {
+              map[jg.playerId].primerosPuestos++;
+            } else if (secondScore !== undefined && jg.juegosGanados === secondScore) {
+              map[jg.playerId].segundosPuestos++;
+            }
+          }
+        });
+      } else if (j.clasificacion && j.clasificacion.length > 0) {
+        // Fallback si no hay listado de jugadores con juegos ganados detallados
+        const p1 = j.clasificacion[0];
+        const p2 = j.clasificacion[1];
+        if (p1 && map[p1]) {
+          map[p1].primerosPuestos++;
+        }
+        if (p2 && map[p2]) {
+          map[p2].segundosPuestos++;
+        }
+      }
+    });
+
     return map;
-  }, [players, matches, sanctions]);
+  }, [players, matches, jornadas, sanctions]);
 
   // Filter and sort players with custom tiebreaker protocol
   const processedPlayers = React.useMemo(() => {
@@ -285,19 +310,22 @@ export default function Ranking({
             >
               Grupos: Todos
             </button>
-            {Array.from({ length: totalGrupos }, (_, i) => i + 1).map((g) => (
-              <button
-                key={g}
-                onClick={() => setFilterGrupo(g)}
-                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                  filterGrupo === g
-                    ? 'bg-ball text-black shadow-md'
-                    : 'text-ink-muted hover:text-ink hover:bg-[var(--surface-2)]'
-                }`}
-              >
-                Grupo {g}
-              </button>
-            ))}
+            {categories.map((cat, idx) => {
+              const g = idx + 1;
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setFilterGrupo(g)}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                    filterGrupo === g
+                      ? 'bg-ball text-black shadow-md'
+                      : 'text-ink-muted hover:text-ink hover:bg-[var(--surface-2)]'
+                  }`}
+                >
+                  {cat.name}
+                </button>
+              );
+            })}
           </div>
 
           {/* Division (Gender) Selection Bar */}
@@ -433,7 +461,7 @@ export default function Ranking({
 
                                 <div className="flex flex-wrap items-center gap-1 mt-1.5 sm:hidden">
                                   <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-extrabold bg-court/10 text-court border border-court/20 uppercase tracking-wider leading-none">
-                                    {player.posicion ? `GRUPO ${getGrupo(player.posicion)}` : 'SIN POSICIÓN'}
+                                    {player.posicion ? (categories[getGrupo(player.posicion) - 1]?.name || `GRUPO ${getGrupo(player.posicion)}`) : 'SIN POSICIÓN'}
                                   </span>
                                   <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase tracking-wider leading-none ${
                                     player.division === 'Masculina' 
@@ -451,11 +479,11 @@ export default function Ranking({
                         {/* Grupo (Reglamento 2026: tramos de 4 posiciones, no categorías) */}
                         <td className="py-3 px-4 text-center hidden sm:table-cell">
                           {player.posicion ? (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-court/10 text-court border border-court/20">
-                              GRUPO {getGrupo(player.posicion)}
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-court/10 text-court border border-court/20 uppercase">
+                              {categories[getGrupo(player.posicion) - 1]?.name || `GRUPO ${getGrupo(player.posicion)}`}
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20 uppercase">
                               SIN POSICIÓN
                             </span>
                           )}
@@ -561,6 +589,27 @@ export default function Ranking({
                                         NO
                                       </button>
                                     </div>
+                                  ) : resetCooldownConfirmPlayerId === player.id ? (
+                                    <div className="flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 p-1 rounded-lg">
+                                      <span className="text-[9px] text-amber-500 font-bold px-1 uppercase tracking-wider">¿Reset Reto?</span>
+                                      <button
+                                        onClick={async () => {
+                                          if (onResetChallengeCooldown) {
+                                            await onResetChallengeCooldown(player.id);
+                                          }
+                                          setResetCooldownConfirmPlayerId(null);
+                                        }}
+                                        className="px-1.5 py-0.5 bg-amber-500 hover:bg-amber-600 text-black text-[9px] font-mono font-bold rounded transition-colors cursor-pointer"
+                                      >
+                                        SÍ
+                                      </button>
+                                      <button
+                                        onClick={() => setResetCooldownConfirmPlayerId(null)}
+                                        className="px-1.5 py-0.5 bg-[var(--surface-2)] hover:bg-[var(--border-strong)] text-ink text-[9px] font-mono font-bold rounded transition-colors cursor-pointer"
+                                      >
+                                        NO
+                                      </button>
+                                    </div>
                                   ) : (
                                     <>
                                       <button
@@ -570,6 +619,15 @@ export default function Ranking({
                                       >
                                         <Edit2 className="h-3 w-3" />
                                       </button>
+                                      {onResetChallengeCooldown && (
+                                        <button
+                                          onClick={() => setResetCooldownConfirmPlayerId(player.id)}
+                                          className="p-1 text-ink-faint hover:text-emerald-500 hover:bg-[var(--surface-2)] rounded-lg transition-colors cursor-pointer"
+                                          title="Reiniciar tiempo de reto (habilitar reto)"
+                                        >
+                                          <RotateCcw className="h-3 w-3" />
+                                        </button>
+                                      )}
                                       <button
                                         onClick={() => setDeleteConfirmPlayerId(player.id)}
                                         className="p-1 text-ink-faint hover:text-rose-500 hover:bg-[var(--surface-2)] rounded-lg transition-colors cursor-pointer"

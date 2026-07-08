@@ -1,8 +1,9 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Player, Match, Category } from '../types';
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { doc, updateDoc, writeBatch, getDoc } from 'firebase/firestore';
-import { Calendar, Users, SquareCheck, RefreshCw, Plus, Trash2, Trophy, Clock, Medal, RotateCcw, Search, X, CheckCircle2, XCircle, AlertTriangle, ThumbsUp, ThumbsDown, Send, Swords } from 'lucide-react';
+import { Calendar, Users, SquareCheck, RefreshCw, Plus, Trash2, Trophy, Clock, Medal, RotateCcw, Search, X, CheckCircle2, XCircle, AlertTriangle, ThumbsUp, ThumbsDown, Send, Swords, ListOrdered } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { calculateMatchPoints, getPlayerRankingIndex, computeIndividualPlayerPoints } from '../utils/points';
 import { calcularMovimientoReto } from '../utils/escalera';
@@ -81,12 +82,18 @@ export default function Partidos({
     const playerB2 = match.playerB2Id ? players.find(p => p.id === match.playerB2Id) : null;
 
     const matchWinner = match.pendingWinner;
-    const setsA = [match.pendingSet1A ?? 0, match.pendingSet2A ?? 0, match.pendingSet3A ?? 0].filter(s => s > 0).length;
-    const setsB = [match.pendingSet1B ?? 0, match.pendingSet2B ?? 0, match.pendingSet3B ?? 0].filter(s => s > 0).length;
-    const setsLoserCount = matchWinner === 'A' ? setsB : setsA;
+    const pendingIsReto = (match.pendingIsReto ?? 'none') as 'none' | 'A' | 'B';
 
-    const gamesA = (match.pendingSet1A ?? 0) + (match.pendingSet2A ?? 0) + (match.pendingSet3A ?? 0);
-    const gamesB = (match.pendingSet1B ?? 0) + (match.pendingSet2B ?? 0) + (match.pendingSet3B ?? 0);
+    // Partidos semanales (no reto): juegos corridos, un único marcador — no
+    // hay concepto de "sets" ni bonus de imbatibilidad por sets.
+    const isWeeklyMatch = pendingIsReto === 'none';
+    const setsA = isWeeklyMatch ? 0 : [match.pendingSet1A ?? 0, match.pendingSet2A ?? 0, match.pendingSet3A ?? 0].filter(s => s > 0).length;
+    const setsB = isWeeklyMatch ? 0 : [match.pendingSet1B ?? 0, match.pendingSet2B ?? 0, match.pendingSet3B ?? 0].filter(s => s > 0).length;
+    const setsLoserCount = matchWinner === 'A' ? setsB : setsA;
+    const applyStraightSetsBonus = !isWeeklyMatch;
+
+    const gamesA = isWeeklyMatch ? (match.pendingSet1A ?? 0) : (match.pendingSet1A ?? 0) + (match.pendingSet2A ?? 0) + (match.pendingSet3A ?? 0);
+    const gamesB = isWeeklyMatch ? (match.pendingSet1B ?? 0) : (match.pendingSet1B ?? 0) + (match.pendingSet2B ?? 0) + (match.pendingSet3B ?? 0);
 
     const rankA1 = getPlayerRankingIndex(playerA1.id, players, match.categoria, match.division);
     const rankA2 = playerA2 ? getPlayerRankingIndex(playerA2.id, players, match.categoria, match.division) : 999;
@@ -96,7 +103,6 @@ export default function Partidos({
     const opRanksA = playerB2 ? [rankB1, rankB2] : [rankB1];
     const opRanksB = playerA2 ? [rankA1, rankA2] : [rankA1];
 
-    const pendingIsReto = (match.pendingIsReto ?? 'none') as 'none' | 'A' | 'B';
     const pa1 = match.pendingPosA1 ?? 1;
     const pa2 = match.pendingPosA2 ?? 2;
     const pb1 = match.pendingPosB1 ?? 3;
@@ -105,22 +111,22 @@ export default function Partidos({
     const a1Breakdown = computeIndividualPlayerPoints({
       playerRank: rankA1, opponentRanks: opRanksA, assignedPosition: pa1, gamesWon: gamesA,
       isChallengerAndWon: pendingIsReto === 'A' && matchWinner === 'A',
-      wonInStraightSets: matchWinner === 'A' && setsLoserCount === 0,
+      wonInStraightSets: applyStraightSetsBonus && matchWinner === 'A' && setsLoserCount === 0,
     });
     const a2Breakdown = playerA2 ? computeIndividualPlayerPoints({
       playerRank: rankA2, opponentRanks: opRanksA, assignedPosition: pa2, gamesWon: gamesA,
       isChallengerAndWon: pendingIsReto === 'A' && matchWinner === 'A',
-      wonInStraightSets: matchWinner === 'A' && setsLoserCount === 0,
+      wonInStraightSets: applyStraightSetsBonus && matchWinner === 'A' && setsLoserCount === 0,
     }) : null;
     const b1Breakdown = computeIndividualPlayerPoints({
       playerRank: rankB1, opponentRanks: opRanksB, assignedPosition: pb1, gamesWon: gamesB,
       isChallengerAndWon: pendingIsReto === 'B' && matchWinner === 'B',
-      wonInStraightSets: matchWinner === 'B' && setsLoserCount === 0,
+      wonInStraightSets: applyStraightSetsBonus && matchWinner === 'B' && setsLoserCount === 0,
     });
     const b2Breakdown = playerB2 ? computeIndividualPlayerPoints({
       playerRank: rankB2, opponentRanks: opRanksB, assignedPosition: pb2, gamesWon: gamesB,
       isChallengerAndWon: pendingIsReto === 'B' && matchWinner === 'B',
-      wonInStraightSets: matchWinner === 'B' && setsLoserCount === 0,
+      wonInStraightSets: applyStraightSetsBonus && matchWinner === 'B' && setsLoserCount === 0,
     }) : null;
 
     const batch = writeBatch(db);
@@ -136,44 +142,24 @@ export default function Partidos({
       winner: matchWinner,
       playedAt: new Date().toISOString(),
       isReto: pendingIsReto,
-      pointsA1: a1Breakdown.total,
-      pointsA2: playerA2 ? a2Breakdown?.total : null,
-      pointsB1: b1Breakdown.total,
-      pointsB2: playerB2 ? b2Breakdown?.total : null,
-      breakdownA1: a1Breakdown,
-      breakdownA2: playerA2 ? a2Breakdown : null,
-      breakdownB1: b1Breakdown,
-      breakdownB2: playerB2 ? b2Breakdown : null,
+      pointsA1: 0,
+      pointsA2: playerA2 ? 0 : null,
+      pointsB1: 0,
+      pointsB2: playerB2 ? 0 : null,
+      breakdownA1: null,
+      breakdownA2: null,
+      breakdownB1: null,
+      breakdownB2: null,
       posA1: pa1, posA2: playerA2 ? pa2 : null,
       posB1: pb1, posB2: playerB2 ? pb2 : null,
-      pointsChange: matchWinner === 'A' ? a1Breakdown.total : b1Breakdown.total,
+      pointsChange: 0,
       resultStatus: approvedBy === 'auto' ? 'auto_approved' : 'approved',
       resultApprovedBy: approvedBy === 'auto' ? 'sistema' : approvedBy,
       resultApprovedByName: approvedBy === 'auto' ? 'Auto-aprobado (24h)' : approvedByName,
       resultApprovedAt: new Date().toISOString(),
     });
 
-    // Actualizar puntos de jugadores
-    batch.update(doc(db, 'players', playerA1.id), {
-      puntos: Math.max(0, playerA1.puntos + a1Breakdown.total),
-      updatedAt: new Date().toISOString(),
-    });
-    batch.update(doc(db, 'players', playerB1.id), {
-      puntos: Math.max(0, playerB1.puntos + b1Breakdown.total),
-      updatedAt: new Date().toISOString(),
-    });
-    if (playerA2 && a2Breakdown) {
-      batch.update(doc(db, 'players', playerA2.id), {
-        puntos: Math.max(0, playerA2.puntos + a2Breakdown.total),
-        updatedAt: new Date().toISOString(),
-      });
-    }
-    if (playerB2 && b2Breakdown) {
-      batch.update(doc(db, 'players', playerB2.id), {
-        puntos: Math.max(0, playerB2.puntos + b2Breakdown.total),
-        updatedAt: new Date().toISOString(),
-      });
-    }
+    // NO SE ACTUALIZAN LOS PUNTOS DE LOS JUGADORES (eliminados por petición del usuario)
 
     // ── Reglamento 2026, Art. 26: si el partido proviene de un Reto Oficial,
     // el resultado mueve posiciones en la escalera (retador/retado/intermedios),
@@ -321,6 +307,8 @@ export default function Partidos({
 
   // Recording results modal state
   const [editingMatch, setEditingMatch] = React.useState<Match | null>(null);
+  const [matchDate, setMatchDate] = React.useState<string>('');
+  const [matchTime, setMatchTime] = React.useState<string>('');
   const [set1A, setSet1A] = React.useState<number>(0);
   const [set1B, setSet1B] = React.useState<number>(0);
   const [set2A, setSet2A] = React.useState<number>(0);
@@ -340,6 +328,11 @@ export default function Partidos({
 
   // Computed winner of the current inputs
   const calculatedWinner = React.useMemo(() => {
+    // Partido semanal de grupo: se juega a juegos corridos (un único marcador,
+    // sin sets), así que el ganador es sencillamente quien tenga más juegos.
+    if (isReto === 'none') {
+      return set1A >= set1B ? 'A' : 'B';
+    }
     let setsA = 0;
     let setsB = 0;
     if (set1A > set1B) setsA++; else if (set1B > set1A) setsB++;
@@ -348,7 +341,7 @@ export default function Partidos({
       if (set3A > set3B) setsA++; else if (set3B > set3A) setsB++;
     }
     return setsA > setsB ? 'A' : 'B';
-  }, [set1A, set1B, set2A, set2B, hasSet3, set3A, set3B]);
+  }, [set1A, set1B, set2A, set2B, hasSet3, set3A, set3B, isReto]);
 
   const prevWinnerRef = React.useRef<'A' | 'B' | null>(null);
 
@@ -381,23 +374,43 @@ export default function Partidos({
 
     let setsA = 0;
     let setsB = 0;
+    let isCompleted: boolean;
+    let matchWinner: 'A' | 'B';
+    let setsLoserCount: number;
+    // Bonus de "imbatibilidad" (ganar sin ceder set) solo tiene sentido en
+    // partidos jugados a sets (Retos). Los partidos semanales son a juegos
+    // corridos y no manejan el concepto de sets.
+    let applyStraightSetsBonus = true;
 
-    if (set1A > set1B) setsA++; else if (set1B > set1A) setsB++;
-    if (set2A > set2B) setsA++; else if (set2B > set2A) setsB++;
-    if (hasSet3) {
-      if (set3A > set3B) setsA++; else if (set3B > set3A) setsB++;
+    if (isReto === 'none') {
+      isCompleted = set1A !== set1B;
+      if (!isCompleted) {
+        return {
+          isValid: false,
+          message: "Introduce el marcador del partido (a juegos corridos, no puede quedar empatado — recuerda el punto de oro)."
+        };
+      }
+      matchWinner = set1A > set1B ? 'A' : 'B';
+      setsLoserCount = 0;
+      applyStraightSetsBonus = false;
+    } else {
+      if (set1A > set1B) setsA++; else if (set1B > set1A) setsB++;
+      if (set2A > set2B) setsA++; else if (set2B > set2A) setsB++;
+      if (hasSet3) {
+        if (set3A > set3B) setsA++; else if (set3B > set3A) setsB++;
+      }
+
+      isCompleted = (setsA >= 2 && setsA > setsB) || (setsB >= 2 && setsB > setsA);
+      if (!isCompleted) {
+        return {
+          isValid: false,
+          message: "Introduce suficientes juegos/sets para decidir un ganador."
+        };
+      }
+
+      matchWinner = setsA > setsB ? 'A' : 'B';
+      setsLoserCount = matchWinner === 'A' ? setsB : setsA;
     }
-
-    const isCompleted = (setsA >= 2 && setsA > setsB) || (setsB >= 2 && setsB > setsA);
-    if (!isCompleted) {
-      return {
-        isValid: false,
-        message: "Introduce suficientes juegos/sets para decidir un ganador."
-      };
-    }
-
-    const matchWinner: 'A' | 'B' = setsA > setsB ? 'A' : 'B';
-    const setsLoserCount = matchWinner === 'A' ? setsB : setsA;
 
     const playerA1 = players.find(p => p.id === editingMatch.playerA1Id);
     const playerB1 = players.find(p => p.id === editingMatch.playerB1Id);
@@ -436,8 +449,8 @@ export default function Partidos({
     }
 
     // Cumulative games won by each team
-    const gamesA = set1A + set2A + (hasSet3 ? set3A : 0);
-    const gamesB = set1B + set2B + (hasSet3 ? set3B : 0);
+    const gamesA = isReto === 'none' ? set1A : (set1A + set2A + (hasSet3 ? set3A : 0));
+    const gamesB = isReto === 'none' ? set1B : (set1B + set2B + (hasSet3 ? set3B : 0));
 
     // Dynamic ranks before applying points
     const rankA1 = getPlayerRankingIndex(playerA1.id, players, editingMatch.categoria, editingMatch.division);
@@ -455,7 +468,7 @@ export default function Partidos({
       assignedPosition: posA1,
       gamesWon: gamesA,
       isChallengerAndWon: isReto === 'A' && matchWinner === 'A',
-      wonInStraightSets: matchWinner === 'A' && setsLoserCount === 0,
+      wonInStraightSets: applyStraightSetsBonus && matchWinner === 'A' && setsLoserCount === 0,
     });
 
     const a2Breakdown = playerA2 ? computeIndividualPlayerPoints({
@@ -464,7 +477,7 @@ export default function Partidos({
       assignedPosition: posA2,
       gamesWon: gamesA,
       isChallengerAndWon: isReto === 'A' && matchWinner === 'A',
-      wonInStraightSets: matchWinner === 'A' && setsLoserCount === 0,
+      wonInStraightSets: applyStraightSetsBonus && matchWinner === 'A' && setsLoserCount === 0,
     }) : null;
 
     const b1Breakdown = computeIndividualPlayerPoints({
@@ -473,7 +486,7 @@ export default function Partidos({
       assignedPosition: posB1,
       gamesWon: gamesB,
       isChallengerAndWon: isReto === 'B' && matchWinner === 'B',
-      wonInStraightSets: matchWinner === 'B' && setsLoserCount === 0,
+      wonInStraightSets: applyStraightSetsBonus && matchWinner === 'B' && setsLoserCount === 0,
     });
 
     const b2Breakdown = playerB2 ? computeIndividualPlayerPoints({
@@ -482,7 +495,7 @@ export default function Partidos({
       assignedPosition: posB2,
       gamesWon: gamesB,
       isChallengerAndWon: isReto === 'B' && matchWinner === 'B',
-      wonInStraightSets: matchWinner === 'B' && setsLoserCount === 0,
+      wonInStraightSets: applyStraightSetsBonus && matchWinner === 'B' && setsLoserCount === 0,
     }) : null;
 
     return {
@@ -516,6 +529,28 @@ export default function Partidos({
     setSet3A(match.set3A || 0);
     setSet3B(match.set3B || 0);
 
+    let d = '';
+    let t = '';
+    if (match.scheduledAt) {
+      try {
+        const dateObj = new Date(match.scheduledAt);
+        if (!isNaN(dateObj.getTime())) {
+          const year = dateObj.getFullYear();
+          const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+          const day = String(dateObj.getDate()).padStart(2, '0');
+          d = `${year}-${month}-${day}`;
+          
+          const hours = String(dateObj.getHours()).padStart(2, '0');
+          const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+          t = `${hours}:${minutes}`;
+        }
+      } catch (e) {
+        console.error('Error parsing scheduledAt:', e);
+      }
+    }
+    setMatchDate(d);
+    setMatchTime(t || '18:00');
+
     setIsReto(match.isReto || 'none');
     setPosA1(match.posA1 || (match.winner === 'B' ? 3 : 1));
     setPosA2(match.posA2 || (match.winner === 'B' ? 4 : 2));
@@ -536,20 +571,53 @@ export default function Partidos({
 
     setLoading(true);
     try {
-      let setsA = 0;
-      let setsB = 0;
-
-      if (set1A > set1B) setsA++; else if (set1B > set1A) setsB++;
-      if (set2A > set2B) setsA++; else if (set2B > set2A) setsB++;
-      
-      if (hasSet3) {
-        if (set3A > set3B) setsA++; else if (set3B > set3A) setsB++;
-      }
-
-      if (setsA === setsB && !hasSet3) {
-        setModalError("El partido está empatado a sets. Activa el tercer set decisivo para desempatar.");
+      // Si el administrador cambia la fecha y hora sin introducir marcador, permitimos guardar la reprogramación
+      const isOnlyRescheduling = isAdminMode && set1A === 0 && set1B === 0;
+      if (isOnlyRescheduling) {
+        const scheduledAtUpdate = matchDate ? (matchTime ? `${matchDate}T${matchTime}:00` : `${matchDate}T18:00:00`) : editingMatch.scheduledAt;
+        const matchRef = doc(db, 'matches', editingMatch.id);
+        await updateDoc(matchRef, {
+          scheduledAt: scheduledAtUpdate,
+        });
+        setEditingMatch(null);
+        if (onRefreshData) onRefreshData();
         setLoading(false);
         return;
+      }
+
+      let setsA = 0;
+      let setsB = 0;
+      let matchWinner: 'A' | 'B';
+      let setsLoserCount: number;
+      // El bonus de "sets corridos" (imbatibilidad) solo aplica a Retos jugados
+      // por sets; los partidos semanales son a juegos corridos (un marcador).
+      let applyStraightSetsBonus = true;
+
+      if (isReto === 'none') {
+        if (set1A === set1B) {
+          setModalError("El partido está empatado a juegos. Recuerda que se juega a juegos corridos con Punto de Oro: debe haber un ganador.");
+          setLoading(false);
+          return;
+        }
+        matchWinner = set1A > set1B ? 'A' : 'B';
+        setsLoserCount = 0;
+        applyStraightSetsBonus = false;
+      } else {
+        if (set1A > set1B) setsA++; else if (set1B > set1A) setsB++;
+        if (set2A > set2B) setsA++; else if (set2B > set2A) setsB++;
+
+        if (hasSet3) {
+          if (set3A > set3B) setsA++; else if (set3B > set3A) setsB++;
+        }
+
+        if (setsA === setsB && !hasSet3) {
+          setModalError("El partido está empatado a sets. Activa el tercer set decisivo para desempatar.");
+          setLoading(false);
+          return;
+        }
+
+        matchWinner = setsA > setsB ? 'A' : 'B';
+        setsLoserCount = matchWinner === 'A' ? setsB : setsA;
       }
 
       // Check for duplicate positions
@@ -562,9 +630,6 @@ export default function Partidos({
         setLoading(false);
         return;
       }
-
-      const matchWinner: 'A' | 'B' = setsA > setsB ? 'A' : 'B';
-      const setsLoserCount = matchWinner === 'A' ? setsB : setsA;
 
       const playerA1 = players.find(p => p.id === editingMatch.playerA1Id);
       const playerB1 = players.find(p => p.id === editingMatch.playerB1Id);
@@ -606,8 +671,8 @@ export default function Partidos({
       }
 
       // Games won cumulative counts
-      const gamesA = set1A + set2A + (hasSet3 ? set3A : 0);
-      const gamesB = set1B + set2B + (hasSet3 ? set3B : 0);
+      const gamesA = isReto === 'none' ? set1A : (set1A + set2A + (hasSet3 ? set3A : 0));
+      const gamesB = isReto === 'none' ? set1B : (set1B + set2B + (hasSet3 ? set3B : 0));
 
       // Pre-match Ranking index positions
       const rankA1 = getPlayerRankingIndex(playerA1.id, players, editingMatch.categoria, editingMatch.division);
@@ -625,7 +690,7 @@ export default function Partidos({
         assignedPosition: posA1,
         gamesWon: gamesA,
         isChallengerAndWon: isReto === 'A' && matchWinner === 'A',
-        wonInStraightSets: matchWinner === 'A' && setsLoserCount === 0,
+        wonInStraightSets: applyStraightSetsBonus && matchWinner === 'A' && setsLoserCount === 0,
       });
 
       const a2Breakdown = playerA2 ? computeIndividualPlayerPoints({
@@ -634,7 +699,7 @@ export default function Partidos({
         assignedPosition: posA2,
         gamesWon: gamesA,
         isChallengerAndWon: isReto === 'A' && matchWinner === 'A',
-        wonInStraightSets: matchWinner === 'A' && setsLoserCount === 0,
+        wonInStraightSets: applyStraightSetsBonus && matchWinner === 'A' && setsLoserCount === 0,
       }) : null;
 
       const b1Breakdown = computeIndividualPlayerPoints({
@@ -643,7 +708,7 @@ export default function Partidos({
         assignedPosition: posB1,
         gamesWon: gamesB,
         isChallengerAndWon: isReto === 'B' && matchWinner === 'B',
-        wonInStraightSets: matchWinner === 'B' && setsLoserCount === 0,
+        wonInStraightSets: applyStraightSetsBonus && matchWinner === 'B' && setsLoserCount === 0,
       });
 
       const b2Breakdown = playerB2 ? computeIndividualPlayerPoints({
@@ -652,59 +717,46 @@ export default function Partidos({
         assignedPosition: posB2,
         gamesWon: gamesB,
         isChallengerAndWon: isReto === 'B' && matchWinner === 'B',
-        wonInStraightSets: matchWinner === 'B' && setsLoserCount === 0,
+        wonInStraightSets: applyStraightSetsBonus && matchWinner === 'B' && setsLoserCount === 0,
       }) : null;
 
       const batch = writeBatch(db);
 
       const matchRef = doc(db, 'matches', editingMatch.id);
-      batch.update(matchRef, {
+      const scheduledAtUpdate = matchDate ? (matchTime ? `${matchDate}T${matchTime}:00` : `${matchDate}T18:00:00`) : editingMatch.scheduledAt;
+
+      const matchUpdateData: any = {
         set1A,
         set1B,
-        set2A,
-        set2B,
-        set3A: hasSet3 ? set3A : null,
-        set3B: hasSet3 ? set3B : null,
+        set2A: isReto === 'none' ? null : set2A,
+        set2B: isReto === 'none' ? null : set2B,
+        set3A: isReto === 'none' ? null : (hasSet3 ? set3A : null),
+        set3B: isReto === 'none' ? null : (hasSet3 ? set3B : null),
         winner: matchWinner,
         playedAt: new Date().toISOString(),
 
-        // Individual scoring system fields
+        // Individual scoring system fields - set to 0 as points are deprecated
         isReto,
-        pointsA1: a1Breakdown.total,
-        pointsA2: playerA2 ? a2Breakdown?.total : null,
-        pointsB1: b1Breakdown.total,
-        pointsB2: playerB2 ? b2Breakdown?.total : null,
-        breakdownA1: a1Breakdown,
-        breakdownA2: playerA2 ? a2Breakdown : null,
-        breakdownB1: b1Breakdown,
-        breakdownB2: playerB2 ? b2Breakdown : null,
+        pointsA1: 0,
+        pointsA2: playerA2 ? 0 : null,
+        pointsB1: 0,
+        pointsB2: playerB2 ? 0 : null,
+        breakdownA1: null,
+        breakdownA2: null,
+        breakdownB1: null,
+        breakdownB2: null,
         posA1,
         posA2: playerA2 ? posA2 : null,
         posB1,
         posB2: playerB2 ? posB2 : null,
-        pointsChange: matchWinner === 'A' ? a1Breakdown.total : b1Breakdown.total, // For compatibility
-      });
+        pointsChange: 0,
+      };
 
-      // Update actual players' points
-      const pA1Ref = doc(db, 'players', playerA1.id);
-      const newA1Points = Math.max(0, baseA1Points + a1Breakdown.total);
-      batch.update(pA1Ref, { puntos: newA1Points, updatedAt: new Date().toISOString() });
-
-      const pB1Ref = doc(db, 'players', playerB1.id);
-      const newB1Points = Math.max(0, baseB1Points + b1Breakdown.total);
-      batch.update(pB1Ref, { puntos: newB1Points, updatedAt: new Date().toISOString() });
-
-      if (playerA2 && a2Breakdown) {
-        const pA2Ref = doc(db, 'players', playerA2.id);
-        const newA2Points = Math.max(0, baseA2Points + a2Breakdown.total);
-        batch.update(pA2Ref, { puntos: newA2Points, updatedAt: new Date().toISOString() });
+      if (isAdminMode) {
+        matchUpdateData.scheduledAt = scheduledAtUpdate;
       }
 
-      if (playerB2 && b2Breakdown) {
-        const pB2Ref = doc(db, 'players', playerB2.id);
-        const newB2Points = Math.max(0, baseB2Points + b2Breakdown.total);
-        batch.update(pB2Ref, { puntos: newB2Points, updatedAt: new Date().toISOString() });
-      }
+      batch.update(matchRef, matchUpdateData);
 
       if (isAdminMode) {
         // Admin: aplicar directamente sin aprobación
@@ -721,10 +773,10 @@ export default function Partidos({
           resultSubmittedAt: new Date().toISOString(),
           pendingSet1A: set1A,
           pendingSet1B: set1B,
-          pendingSet2A: set2A,
-          pendingSet2B: set2B,
-          pendingSet3A: hasSet3 ? set3A : null,
-          pendingSet3B: hasSet3 ? set3B : null,
+          pendingSet2A: isReto === 'none' ? null : set2A,
+          pendingSet2B: isReto === 'none' ? null : set2B,
+          pendingSet3A: isReto === 'none' ? null : (hasSet3 ? set3A : null),
+          pendingSet3B: isReto === 'none' ? null : (hasSet3 ? set3B : null),
           pendingWinner: matchWinner,
           pendingIsReto: isReto,
           pendingPosA1: posA1,
@@ -944,15 +996,22 @@ export default function Partidos({
                           : 'PLANIFICADO / EN JUEGO'}
                     </span>
                     <div className="flex gap-1.5 items-center">
-                      {match.isReto && match.isReto !== 'none' && (
+                      {match.isReto && match.isReto !== 'none' ? (
                         <span className="px-2 py-0.5 text-[10px] bg-amber-500/10 border border-amber-500/30 text-amber-400 font-extrabold rounded uppercase flex items-center gap-1 shadow-[0_0_8px_rgba(245,158,11,0.15)]">
                           <Swords className="h-3.5 w-3.5 text-amber-400" />
                           <span>RETO DIRECTO</span>
                         </span>
+                      ) : match.grupo != null && (
+                        <span className="px-2 py-0.5 text-[10px] bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-extrabold rounded uppercase flex items-center gap-1">
+                          <ListOrdered className="h-3.5 w-3.5 text-emerald-400" />
+                          <span>{categories[Number(match.grupo) - 1]?.name || `GRUPO ${match.grupo}`}</span>
+                        </span>
                       )}
-                      <span className="px-2 py-0.5 text-[10px] bg-[var(--surface-2)] border border-[var(--border-subtle)] text-ink font-bold rounded uppercase">
-                        {match.categoria}
-                      </span>
+                      {match.categoria && (
+                        <span className="px-2 py-0.5 text-[10px] bg-[var(--surface-2)] border border-[var(--border-subtle)] text-ink font-bold rounded uppercase">
+                          {match.categoria}
+                        </span>
+                      )}
                       <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase ${
                         match.division === 'Masculina' 
                           ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20' 
@@ -971,26 +1030,10 @@ export default function Partidos({
                       <div className={`font-semibold truncate text-[13px] text-ink ${match.winner === 'A' ? 'text-ball-safe font-black' : 'opacity-90'}`}>
                         {match.playerA1Name}
                       </div>
-                      {isPlayed && match.pointsA1 != null && (
-                        <button
-                          onClick={() => togglePointsBreakdown(match.id, 'A1')}
-                          className="text-[10px] font-mono font-bold text-ink-faint hover:text-ball-safe transition-colors cursor-pointer"
-                        >
-                          +{match.pointsA1} pts {expandedBreakdownKey === `${match.id}_A1` ? '▴' : '▾'}
-                        </button>
-                      )}
                       {match.type === '2vs2' && match.playerA2Name && (
-                        <div className={`font-semibold truncate text-[13px] text-ink mt-0.5 ${match.winner === 'A' ? 'text-ball-safe font-black' : 'opacity-90'}`}>
+                        <div className={`font-semibold truncate text-[13px] text-ink mt-1 ${match.winner === 'A' ? 'text-ball-safe font-black' : 'opacity-90'}`}>
                           & {match.playerA2Name}
                         </div>
-                      )}
-                      {isPlayed && match.pointsA2 != null && (
-                        <button
-                          onClick={() => togglePointsBreakdown(match.id, 'A2')}
-                          className="text-[10px] font-mono font-bold text-ink-faint hover:text-ball-safe transition-colors cursor-pointer"
-                        >
-                          +{match.pointsA2} pts {expandedBreakdownKey === `${match.id}_A2` ? '▴' : '▾'}
-                        </button>
                       )}
                       {match.winner === 'A' && (
                         <div className="flex justify-end mt-2 pt-2 border-t border-[var(--border-subtle)]">
@@ -1005,30 +1048,42 @@ export default function Partidos({
                     <div className="col-span-1 flex flex-col items-center justify-center bg-[var(--surface-input)] p-2.5 rounded-xl border border-[var(--border-subtle)] min-h-[72px] shadow-inner font-mono gap-1">
                       {isPlayed ? (
                         <div className="flex flex-col items-center justify-center text-center gap-1">
-                          {/* Set 1 */}
-                          <div className="flex items-center space-x-1.5 text-[12px] font-bold">
-                            <span className="text-ink-faint text-[9px] font-extrabold uppercase tracking-wider mr-0.5">S1:</span>
-                            <span className={match.winner === 'A' ? 'text-ball-safe' : 'text-ink-faint'}>{match.set1A}</span>
-                            <span className="text-ink-faint">-</span>
-                            <span className={match.winner === 'B' ? 'text-ball-safe' : 'text-ink-faint'}>{match.set1B}</span>
-                          </div>
-                          
-                          {/* Set 2 */}
-                          <div className="flex items-center space-x-1.5 text-[12px] font-bold">
-                            <span className="text-ink-faint text-[9px] font-extrabold uppercase tracking-wider mr-0.5">S2:</span>
-                            <span className={match.winner === 'A' ? 'text-ball-safe' : 'text-ink-faint'}>{match.set2A}</span>
-                            <span className="text-ink-faint">-</span>
-                            <span className={match.winner === 'B' ? 'text-ball-safe' : 'text-ink-faint'}>{match.set2B}</span>
-                          </div>
-
-                          {/* Set 3 */}
-                          {(match.set3A !== null && match.set3A !== undefined && match.set3A !== 0 || match.set3B !== null && match.set3B !== undefined && match.set3B !== 0) && (
-                            <div className="flex items-center space-x-1.5 text-[12px] font-bold">
-                              <span className="text-ink-faint text-[9px] font-extrabold uppercase tracking-wider mr-0.5">S3:</span>
-                              <span className={match.winner === 'A' ? 'text-ball-safe' : 'text-ink-faint'}>{match.set3A}</span>
-                              <span className="text-ink-faint">-</span>
-                              <span className={match.winner === 'B' ? 'text-ball-safe' : 'text-ink-faint'}>{match.set3B}</span>
+                          {!(match.isReto && match.isReto !== 'none') ? (
+                            /* Juegos corridos - Mostrar solo los juegos del Set 1 sin prefijos S1/S2/S3 */
+                            <div className="flex items-center space-x-1 text-[16px] font-black tracking-wide">
+                              <span className={match.winner === 'A' ? 'text-ball-safe text-[18px]' : 'text-ink-muted'}>{match.set1A}</span>
+                              <span className="text-ink-faint text-[14px]">-</span>
+                              <span className={match.winner === 'B' ? 'text-ball-safe text-[18px]' : 'text-ink-muted'}>{match.set1B}</span>
                             </div>
+                          ) : (
+                            /* Formato normal de sets para Retos */
+                            <>
+                              {/* Set 1 */}
+                              <div className="flex items-center space-x-1.5 text-[12px] font-bold">
+                                <span className="text-ink-faint text-[9px] font-extrabold uppercase tracking-wider mr-0.5">S1:</span>
+                                <span className={match.winner === 'A' ? 'text-ball-safe' : 'text-ink-faint'}>{match.set1A}</span>
+                                <span className="text-ink-faint">-</span>
+                                <span className={match.winner === 'B' ? 'text-ball-safe' : 'text-ink-faint'}>{match.set1B}</span>
+                              </div>
+                              
+                              {/* Set 2 */}
+                              <div className="flex items-center space-x-1.5 text-[12px] font-bold">
+                                <span className="text-ink-faint text-[9px] font-extrabold uppercase tracking-wider mr-0.5">S2:</span>
+                                <span className={match.winner === 'A' ? 'text-ball-safe' : 'text-ink-faint'}>{match.set2A}</span>
+                                <span className="text-ink-faint">-</span>
+                                <span className={match.winner === 'B' ? 'text-ball-safe' : 'text-ink-faint'}>{match.set2B}</span>
+                              </div>
+
+                              {/* Set 3 */}
+                              {(match.set3A !== null && match.set3A !== undefined && match.set3A !== 0 || match.set3B !== null && match.set3B !== undefined && match.set3B !== 0) && (
+                                <div className="flex items-center space-x-1.5 text-[12px] font-bold">
+                                  <span className="text-ink-faint text-[9px] font-extrabold uppercase tracking-wider mr-0.5">S3:</span>
+                                  <span className={match.winner === 'A' ? 'text-ball-safe' : 'text-ink-faint'}>{match.set3A}</span>
+                                  <span className="text-ink-faint">-</span>
+                                  <span className={match.winner === 'B' ? 'text-ball-safe' : 'text-ink-faint'}>{match.set3B}</span>
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
                       ) : (
@@ -1054,26 +1109,10 @@ export default function Partidos({
                       <div className={`font-semibold truncate text-[13px] text-ink ${match.winner === 'B' ? 'text-ball-safe font-black' : 'opacity-90'}`}>
                         {match.playerB1Name}
                       </div>
-                      {isPlayed && match.pointsB1 != null && (
-                        <button
-                          onClick={() => togglePointsBreakdown(match.id, 'B1')}
-                          className="text-[10px] font-mono font-bold text-ink-faint hover:text-ball-safe transition-colors cursor-pointer"
-                        >
-                          +{match.pointsB1} pts {expandedBreakdownKey === `${match.id}_B1` ? '▴' : '▾'}
-                        </button>
-                      )}
                       {match.type === '2vs2' && match.playerB2Name && (
-                        <div className={`font-semibold truncate text-[13px] text-ink mt-0.5 ${match.winner === 'B' ? 'text-ball-safe font-black' : 'opacity-90'}`}>
+                        <div className={`font-semibold truncate text-[13px] text-ink mt-1 ${match.winner === 'B' ? 'text-ball-safe font-black' : 'opacity-90'}`}>
                           & {match.playerB2Name}
                         </div>
-                      )}
-                      {isPlayed && match.pointsB2 != null && (
-                        <button
-                          onClick={() => togglePointsBreakdown(match.id, 'B2')}
-                          className="text-[10px] font-mono font-bold text-ink-faint hover:text-ball-safe transition-colors cursor-pointer"
-                        >
-                          +{match.pointsB2} pts {expandedBreakdownKey === `${match.id}_B2` ? '▴' : '▾'}
-                        </button>
                       )}
                       {match.winner === 'B' && (
                         <div className="flex justify-start mt-2 pt-2 border-t border-[var(--border-subtle)]">
@@ -1086,49 +1125,17 @@ export default function Partidos({
 
                   </div>
 
-                  {/* Panel de desglose de puntos (se muestra al hacer click en "+N pts") */}
-                  {expandedBreakdownKey?.startsWith(`${match.id}_`) && (() => {
-                    const slot = expandedBreakdownKey.split('_')[1] as 'A1' | 'A2' | 'B1' | 'B2';
-                    const data = getSlotBreakdown(match, slot);
-                    if (!data) return null;
-                    const b = data.breakdown;
-                    return (
-                      <div className="mb-3 bg-[var(--surface-input)] border border-ball/20 rounded-xl p-3 animate-fade-in">
-                        <p className="text-[11px] font-black text-ball-safe uppercase tracking-wider mb-2">
-                          Desglose de puntos · {data.name}
-                        </p>
-                        {b ? (
-                          <div className="space-y-1 text-[11px] font-mono text-ink-muted">
-                            <div className="flex justify-between"><span>Puntos por puesto (base)</span><span className="text-ink font-bold">+{b.base}</span></div>
-                            <div className="flex justify-between"><span>Juegos ganados</span><span className="text-ink font-bold">+{b.gamesWonPoints}</span></div>
-                            <div className="flex justify-between"><span>Bonus dificultad rival</span><span className="text-ink font-bold">+{b.difficultyBonus}</span></div>
-                            <div className="flex justify-between"><span>Bonus reto superado</span><span className="text-ink font-bold">+{b.challengeBonus}</span></div>
-                            <div className="flex justify-between"><span>Bonus imbatibilidad (sets corridos)</span><span className="text-ink font-bold">+{b.immacBonus}</span></div>
-                            <div className="flex justify-between border-t border-[var(--border-subtle)] pt-1.5 mt-1.5">
-                              <span className="text-ball-safe font-bold">Total</span>
-                              <span className="text-ball-safe font-black">+{b.total}</span>
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="text-[11px] text-ink-faint italic">
-                            Este partido se registró antes de activar el desglose detallado, solo se guardó el total: +{data.points} pts.
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })()}
-
                   {/* Points exchanged & Actions Footer */}
                   <div className="border-t border-[var(--border-subtle)] mt-4 pt-3 flex justify-between items-center">
                     
-                    {/* Points detail */}
+                    {/* Status detail */}
                     {isPlayed ? (
-                      <div className="flex items-center gap-1.5 bg-ball/10 border border-ball/15 px-2.5 py-1 rounded-lg text-ball-safe font-mono text-[11px] font-bold animate-fade-in">
-                        <Medal className="h-3.5 w-3.5" />
-                        <span>Puntos sumados: {match.pointsChange ? `+${match.pointsChange}` : 'N/A'}</span>
+                      <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg text-emerald-400 font-mono text-[11px] font-bold animate-fade-in">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        <span>Jugado</span>
                       </div>
                     ) : (
-                      <span className="text-[11px] text-ink-faint italic font-medium">Esperando resultado...</span>
+                      <span className="text-[11px] text-ink-faint italic font-medium font-mono uppercase tracking-wider">Pendiente</span>
                     )}
 
                     {/* Match Actions triggers */}
@@ -1319,9 +1326,9 @@ export default function Partidos({
       )}
 
       {/* Record Match Scores Overlay Modal (Fully customized glass-modal panel) */}
-      {editingMatch && (
-        <div className="fixed inset-0 z-50 overflow-y-auto flex items-center justify-center bg-slate-950/75 backdrop-blur-md p-4 sm:p-6 animate-fade-in">
-          <div className="glass-card rounded-2xl max-w-md w-full shadow-2xl border border-[var(--border-subtle)] overflow-hidden text-ink p-6 relative">
+      {editingMatch && createPortal(
+        <div className="fixed inset-0 z-100 overflow-y-auto flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-4 sm:p-6 animate-fade-in">
+          <div className="glass-card rounded-2xl max-w-md w-full shadow-2xl border border-[var(--border-subtle)] overflow-y-auto max-h-[95vh] text-ink p-6 relative">
             <div className="border-b border-[var(--border-subtle)] pb-3 mb-5 flex justify-between items-center">
               <h3 className="font-display text-lg font-black text-ink flex items-center gap-2">
                 <SquareCheck className="h-5 w-5 text-ball-safe" />
@@ -1340,6 +1347,44 @@ export default function Partidos({
                 <div className="bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-xl p-3 text-xs font-semibold flex items-center justify-between animate-fade-in">
                   <span>{modalError}</span>
                   <button type="button" onClick={() => setModalError(null)} className="text-ink hover:text-rose-400 ml-2">✕</button>
+                </div>
+              )}
+
+              {/* Bloque de programación para Administradores */}
+              {isAdminMode && (
+                <div className="bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-xl p-3.5 space-y-2.5 animate-fade-in">
+                  <span className="block text-[11px] font-mono uppercase font-black text-ball-safe tracking-wider">
+                    Modificar Fecha y Hora (Administrador)
+                  </span>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label htmlFor="modal-match-date" className="block text-[10px] text-ink-muted font-bold uppercase font-mono">
+                        Fecha
+                      </label>
+                      <input
+                        id="modal-match-date"
+                        type="date"
+                        value={matchDate}
+                        onChange={(e) => setMatchDate(e.target.value)}
+                        className="w-full bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-lg p-2 text-xs font-semibold text-ink focus:outline-hidden focus:ring-1 focus:ring-ball/30"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="modal-match-time" className="block text-[10px] text-ink-muted font-bold uppercase font-mono">
+                        Hora
+                      </label>
+                      <input
+                        id="modal-match-time"
+                        type="time"
+                        value={matchTime}
+                        onChange={(e) => setMatchTime(e.target.value)}
+                        className="w-full bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-lg p-2 text-xs font-semibold text-ink focus:outline-hidden focus:ring-1 focus:ring-ball/30"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-ink-faint leading-tight">
+                    * Deja el marcador en 0-0 de juegos si solo deseas reprogramar el partido sin registrar marcador.
+                  </p>
                 </div>
               )}
 
@@ -1386,10 +1431,21 @@ export default function Partidos({
                 </div>
 
                 {/* Additional Info Badges */}
-                <div className="flex items-center justify-center gap-3 mt-3 pt-2.5 border-t border-[var(--border-subtle)] font-mono text-[10px] text-ink-faint uppercase font-black tracking-widest">
+                <div className="flex items-center justify-center gap-3 mt-3 pt-2.5 border-t border-[var(--border-subtle)] font-mono text-[10px] text-ink-faint uppercase font-black tracking-widest flex-wrap">
                   <div className="flex items-center gap-1">
-                    <span>Categoría:</span>
-                    <span className="text-ball-safe bg-ball/15 px-1.5 py-0.5 rounded border border-ball/10">{editingMatch.categoria}</span>
+                    {isReto === 'none' && editingMatch.grupo != null ? (
+                      <>
+                        <span>Grupo:</span>
+                        <span className="text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                          {categories[Number(editingMatch.grupo) - 1]?.name || editingMatch.grupo}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Categoría:</span>
+                        <span className="text-ball-safe bg-ball/15 px-1.5 py-0.5 rounded border border-ball/10">{editingMatch.categoria}</span>
+                      </>
+                    )}
                   </div>
                   <div className="w-1.5 h-1.5 bg-[var(--surface-2)] rounded-full" />
                   <div className="flex items-center gap-1">
@@ -1405,9 +1461,15 @@ export default function Partidos({
 
               {/* Set scoring grid */}
               <div className="space-y-3">
-                {/* SET 1 */}
+                {isReto === 'none' && (
+                  <p className="text-[10px] text-emerald-400/90 bg-emerald-500/5 border border-emerald-500/15 rounded-lg px-3 py-2 leading-relaxed">
+                    Partido semanal de grupo: se juega a <strong>juegos corridos</strong> (un único marcador, sin sets). El equipo ganador no tiene por qué llegar a 6 juegos — introduce el total de juegos que ganó cada equipo en su bloque.
+                  </p>
+                )}
+
+                {/* Marcador único (juegos corridos) o Set 1 (Reto) */}
                 <div className="grid grid-cols-12 items-center gap-3 bg-[var(--surface-input)] p-3 rounded-xl border border-[var(--border-subtle)]">
-                  <span className="col-span-3 text-xs font-mono uppercase font-bold text-ink-muted">Set 1</span>
+                  <span className="col-span-3 text-xs font-mono uppercase font-bold text-ink-muted">{isReto === 'none' ? 'Marcador' : 'Set 1'}</span>
                   <div className="col-span-4 flex items-center space-x-2">
                     <input
                       id="input-set1a"
@@ -1418,10 +1480,10 @@ export default function Partidos({
                       onChange={(e) => setSet1A(parseInt(e.target.value) || 0)}
                       className="w-12 bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-lg p-2 text-center text-sm font-bold text-ball-safe focus:outline-hidden focus:border-ball/50 focus:ring-1 focus:ring-ball/30"
                     />
-                    <span className="text-[10px] text-ink-faint uppercase">GMS A</span>
+                    <span className="text-[10px] text-ink-faint uppercase">Juegos A</span>
                   </div>
                   <div className="col-span-5 flex items-center space-x-2 justify-end">
-                    <span className="text-[10px] text-ink-faint uppercase">GMS B</span>
+                    <span className="text-[10px] text-ink-faint uppercase">Juegos B</span>
                     <input
                       id="input-set1b"
                       type="number"
@@ -1434,76 +1496,82 @@ export default function Partidos({
                   </div>
                 </div>
 
-                {/* SET 2 */}
-                <div className="grid grid-cols-12 items-center gap-3 bg-[var(--surface-input)] p-3 rounded-xl border border-[var(--border-subtle)]">
-                  <span className="col-span-3 text-xs font-mono uppercase font-bold text-ink-muted">Set 2</span>
-                  <div className="col-span-4 flex items-center space-x-2">
-                    <input
-                      id="input-set2a"
-                      type="number"
-                      min="0"
-                      max="20"
-                      value={set2A}
-                      onChange={(e) => setSet2A(parseInt(e.target.value) || 0)}
-                      className="w-12 bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-lg p-2 text-center text-sm font-bold text-ball-safe focus:outline-hidden focus:border-ball/50 focus:ring-1 focus:ring-ball/30"
-                    />
-                    <span className="text-[10px] text-ink-faint uppercase">GMS A</span>
-                  </div>
-                  <div className="col-span-5 flex items-center space-x-2 justify-end">
-                    <span className="text-[10px] text-ink-faint uppercase">GMS B</span>
-                    <input
-                      id="input-set2b"
-                      type="number"
-                      min="0"
-                      max="20"
-                      value={set2B}
-                      onChange={(e) => setSet2B(parseInt(e.target.value) || 0)}
-                      className="w-12 bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-lg p-2 text-center text-sm font-bold text-ball-safe focus:outline-hidden focus:border-ball/50 focus:ring-1 focus:ring-ball/30"
-                    />
-                  </div>
-                </div>
-
-                {/* Optional Set 3 Trigger */}
-                <div className="flex items-center justify-between p-3 bg-[var(--surface-input)] rounded-xl border border-[var(--border-subtle)]">
-                  <label htmlFor="checkbox-has-set3" className="text-xs font-bold text-ink">¿Se jugó tercer set de desempate?</label>
-                  <input
-                    id="checkbox-has-set3"
-                    type="checkbox"
-                    checked={hasSet3}
-                    onChange={(e) => setHasSet3(e.target.checked)}
-                    className="h-4.5 w-4.5 text-ball-safe bg-[var(--surface-input)] rounded border-[var(--border-subtle)] focus:ring-0 cursor-pointer"
-                  />
-                </div>
-
-                {/* SET 3 (only active if hasSet3 is true) */}
-                {hasSet3 && (
-                  <div className="grid grid-cols-12 items-center gap-3 bg-[var(--surface-input)] p-3 rounded-xl border border-ball/20">
-                    <span className="col-span-3 text-xs font-mono uppercase font-bold text-amber-400">Set 3</span>
-                    <div className="col-span-4 flex items-center space-x-2">
-                      <input
-                        id="input-set3a"
-                        type="number"
-                        min="0"
-                        max="20"
-                        value={set3A}
-                        onChange={(e) => setSet3A(parseInt(e.target.value) || 0)}
-                        className="w-12 bg-[var(--surface-input)] border border-ball/30 rounded-lg p-2 text-center text-sm font-bold text-ball-safe focus:outline-hidden focus:border-ball/70 focus:ring-1 focus:ring-ball/45"
-                      />
-                      <span className="text-[10px] text-ink-faint uppercase">GMS A</span>
+                {/* Set 2 y Set 3 solo aplican a Retos (partidos por sets); los partidos
+                    semanales son a juegos corridos y usan solo el marcador de arriba. */}
+                {isReto !== 'none' && (
+                  <>
+                    {/* SET 2 */}
+                    <div className="grid grid-cols-12 items-center gap-3 bg-[var(--surface-input)] p-3 rounded-xl border border-[var(--border-subtle)]">
+                      <span className="col-span-3 text-xs font-mono uppercase font-bold text-ink-muted">Set 2</span>
+                      <div className="col-span-4 flex items-center space-x-2">
+                        <input
+                          id="input-set2a"
+                          type="number"
+                          min="0"
+                          max="20"
+                          value={set2A}
+                          onChange={(e) => setSet2A(parseInt(e.target.value) || 0)}
+                          className="w-12 bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-lg p-2 text-center text-sm font-bold text-ball-safe focus:outline-hidden focus:border-ball/50 focus:ring-1 focus:ring-ball/30"
+                        />
+                        <span className="text-[10px] text-ink-faint uppercase">Juegos A</span>
+                      </div>
+                      <div className="col-span-5 flex items-center space-x-2 justify-end">
+                        <span className="text-[10px] text-ink-faint uppercase">Juegos B</span>
+                        <input
+                          id="input-set2b"
+                          type="number"
+                          min="0"
+                          max="20"
+                          value={set2B}
+                          onChange={(e) => setSet2B(parseInt(e.target.value) || 0)}
+                          className="w-12 bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-lg p-2 text-center text-sm font-bold text-ball-safe focus:outline-hidden focus:border-ball/50 focus:ring-1 focus:ring-ball/30"
+                        />
+                      </div>
                     </div>
-                    <div className="col-span-5 flex items-center space-x-2 justify-end">
-                      <span className="text-[10px] text-ink-faint uppercase">GMS B</span>
+
+                    {/* Optional Set 3 Trigger */}
+                    <div className="flex items-center justify-between p-3 bg-[var(--surface-input)] rounded-xl border border-[var(--border-subtle)]">
+                      <label htmlFor="checkbox-has-set3" className="text-xs font-bold text-ink">¿Se jugó tercer set de desempate?</label>
                       <input
-                        id="input-set3b"
-                        type="number"
-                        min="0"
-                        max="20"
-                        value={set3B}
-                        onChange={(e) => setSet3B(parseInt(e.target.value) || 0)}
-                        className="w-12 bg-[var(--surface-input)] border border-ball/30 rounded-lg p-2 text-center text-sm font-bold text-ball-safe focus:outline-hidden focus:border-ball/70 focus:ring-1 focus:ring-ball/45"
+                        id="checkbox-has-set3"
+                        type="checkbox"
+                        checked={hasSet3}
+                        onChange={(e) => setHasSet3(e.target.checked)}
+                        className="h-4.5 w-4.5 text-ball-safe bg-[var(--surface-input)] rounded border-[var(--border-subtle)] focus:ring-0 cursor-pointer"
                       />
                     </div>
-                  </div>
+
+                    {/* SET 3 (only active if hasSet3 is true) */}
+                    {hasSet3 && (
+                      <div className="grid grid-cols-12 items-center gap-3 bg-[var(--surface-input)] p-3 rounded-xl border border-ball/20">
+                        <span className="col-span-3 text-xs font-mono uppercase font-bold text-amber-400">Set 3</span>
+                        <div className="col-span-4 flex items-center space-x-2">
+                          <input
+                            id="input-set3a"
+                            type="number"
+                            min="0"
+                            max="20"
+                            value={set3A}
+                            onChange={(e) => setSet3A(parseInt(e.target.value) || 0)}
+                            className="w-12 bg-[var(--surface-input)] border border-ball/30 rounded-lg p-2 text-center text-sm font-bold text-ball-safe focus:outline-hidden focus:border-ball/70 focus:ring-1 focus:ring-ball/45"
+                          />
+                          <span className="text-[10px] text-ink-faint uppercase">Juegos A</span>
+                        </div>
+                        <div className="col-span-5 flex items-center space-x-2 justify-end">
+                          <span className="text-[10px] text-ink-faint uppercase">Juegos B</span>
+                          <input
+                            id="input-set3b"
+                            type="number"
+                            min="0"
+                            max="20"
+                            value={set3B}
+                            onChange={(e) => setSet3B(parseInt(e.target.value) || 0)}
+                            className="w-12 bg-[var(--surface-input)] border border-ball/30 rounded-lg p-2 text-center text-sm font-bold text-ball-safe focus:outline-hidden focus:border-ball/70 focus:ring-1 focus:ring-ball/45"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {/* Desafío Semanal / Reto */}
@@ -1522,183 +1590,9 @@ export default function Partidos({
                     <option value="B">Equipo B retó al Equipo A</option>
                   </select>
                 </div>
-
-                {/* Asignación de Posición / Clasificación Final del Partido */}
-                <div className="bg-[var(--surface-input)] p-3 rounded-xl border border-[var(--border-subtle)] space-y-3">
-                  <span className="block text-xs font-mono uppercase font-bold text-ink border-b border-[var(--border-subtle)] pb-1.5">
-                    Puestos Finales Asignados (Puntos Base)
-                  </span>
-                  
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label htmlFor="select-pos-a1" className="block text-[10px] text-ink-muted truncate font-bold font-mono">
-                        A1: {editingMatch.playerA1Name}
-                      </label>
-                      <select
-                        id="select-pos-a1"
-                        value={posA1}
-                        onChange={(e) => setPosA1(parseInt(e.target.value))}
-                        className="w-full bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-lg p-1.5 text-xs text-ball-safe font-mono focus:ring-1 focus:ring-ball/40 focus:outline-hidden"
-                      >
-                        <option value={1}>1º puesto (25 pts)</option>
-                        <option value={2}>2º puesto (20 pts)</option>
-                        <option value={3}>3º puesto (16 pts)</option>
-                        <option value={4}>4º puesto (13 pts)</option>
-                      </select>
-                    </div>
-
-                    {editingMatch.playerA2Name && (
-                      <div className="space-y-1">
-                        <label htmlFor="select-pos-a2" className="block text-[10px] text-ink-muted truncate font-bold font-mono">
-                          A2: {editingMatch.playerA2Name}
-                        </label>
-                        <select
-                          id="select-pos-a2"
-                          value={posA2}
-                          onChange={(e) => setPosA2(parseInt(e.target.value))}
-                          className="w-full bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-lg p-1.5 text-xs text-ball-safe font-mono focus:ring-1 focus:ring-ball/40 focus:outline-hidden"
-                        >
-                          <option value={1}>1º puesto (25 pts)</option>
-                          <option value={2}>2º puesto (20 pts)</option>
-                          <option value={3}>3º puesto (16 pts)</option>
-                          <option value={4}>4º puesto (13 pts)</option>
-                        </select>
-                      </div>
-                    )}
-
-                    <div className="space-y-1">
-                      <label htmlFor="select-pos-b1" className="block text-[10px] text-ink-muted truncate font-bold font-mono">
-                        B1: {editingMatch.playerB1Name}
-                      </label>
-                      <select
-                        id="select-pos-b1"
-                        value={posB1}
-                        onChange={(e) => setPosB1(parseInt(e.target.value))}
-                        className="w-full bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-lg p-1.5 text-xs text-ball-safe font-mono focus:ring-1 focus:ring-ball/40 focus:outline-hidden"
-                      >
-                        <option value={1}>1º puesto (25 pts)</option>
-                        <option value={2}>2º puesto (20 pts)</option>
-                        <option value={3}>3º puesto (16 pts)</option>
-                        <option value={4}>4º puesto (13 pts)</option>
-                      </select>
-                    </div>
-
-                    {editingMatch.playerB2Name && (
-                      <div className="space-y-1">
-                        <label htmlFor="select-pos-b2" className="block text-[10px] text-ink-muted truncate font-bold font-mono">
-                          B2: {editingMatch.playerB2Name}
-                        </label>
-                        <select
-                          id="select-pos-b2"
-                          value={posB2}
-                          onChange={(e) => setPosB2(parseInt(e.target.value))}
-                          className="w-full bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-lg p-1.5 text-xs text-ball-safe font-mono focus:ring-1 focus:ring-ball/40 focus:outline-hidden"
-                        >
-                          <option value={1}>1º puesto (25 pts)</option>
-                          <option value={2}>2º puesto (20 pts)</option>
-                          <option value={3}>3º puesto (16 pts)</option>
-                          <option value={4}>4º puesto (13 pts)</option>
-                        </select>
-                      </div>
-                    )}
-                  </div>
-                </div>
               </div>
 
-              {/* LIVE POINTS PREVIEW BLOCK */}
-              {livePreview && (
-                <div className="bg-[var(--surface-input)] border border-[var(--border-subtle)] rounded-xl p-3.5 space-y-2.5 animate-fade-in">
-                  <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-2">
-                    <span className="text-[10px] uppercase font-bold tracking-widest text-ink-faint font-mono">Simulando Puntos</span>
-                    <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded ${
-                      livePreview.isValid 
-                        ? 'bg-ball/10 text-ball-safe border border-ball/20' 
-                        : 'bg-[var(--surface-2)] text-ink-faint'
-                     }`}>
-                      {livePreview.isValid ? 'Cálculo RACKET' : 'Incompleto'}
-                    </span>
-                  </div>
 
-                  {!livePreview.isValid ? (
-                    <p className="text-xs text-ink-muted italic leading-relaxed text-center py-1">
-                      {livePreview.message}
-                    </p>
-                  ) : (
-                    <div className="space-y-3">
-                      {/* Winning team banner */}
-                      <div className="flex items-center gap-1.5 justify-center py-1.5 bg-ball/10 rounded-lg border border-ball/15">
-                        <Trophy className="h-4 w-4 text-ball-safe shrink-0" />
-                        <span className="text-xs font-bold text-ink">
-                          Ganador: <span className="text-ball-safe uppercase font-black font-display">{livePreview.winner === 'A' ? 'Equipo A' : 'Equipo B'}</span>
-                        </span>
-                      </div>
-
-                      {/* Detailed Player Breakdowns */}
-                      <div className="space-y-2 text-xs">
-                        <div className="bg-[var(--surface-2)] rounded-lg p-2.5 space-y-2 border border-[var(--border-subtle)]">
-                          <span className="font-extrabold text-[10px] text-ink-muted uppercase font-mono block">Detalle de Puntuación:</span>
-                          
-                          {/* Player A1 */}
-                          <div className="flex flex-col text-[11px] border-b border-[var(--border-subtle)] pb-1.5">
-                            <span className="font-bold text-ink">{editingMatch.playerA1Name} (Puesto {livePreview.a1Breakdown?.base === 25 ? '1º' : livePreview.a1Breakdown?.base === 20 ? '2º' : livePreview.a1Breakdown?.base === 16 ? '3º' : '4º'}):</span>
-                            <div className="flex flex-wrap gap-x-2 text-[10px] text-ink-faint font-mono mt-0.5">
-                              <span>Base: {livePreview.a1Breakdown?.base}</span>
-                              <span>• Juegos: +{livePreview.a1Breakdown?.gamesWonPoints}</span>
-                              {livePreview.a1Breakdown && livePreview.a1Breakdown.difficultyBonus > 0 && <span className="text-lime-400 font-bold">• Dif: +{livePreview.a1Breakdown.difficultyBonus}</span>}
-                              {livePreview.a1Breakdown && livePreview.a1Breakdown.challengeBonus > 0 && <span className="text-amber-400 font-bold">• Reto: +{livePreview.a1Breakdown.challengeBonus}</span>}
-                              {livePreview.a1Breakdown && livePreview.a1Breakdown.immacBonus > 0 && <span className="text-cyan-400 font-bold">• Imb: +{livePreview.a1Breakdown.immacBonus}</span>}
-                              <span className="text-ball-safe font-black ml-auto bg-ball/10 px-1 py-0.2 rounded">+{livePreview.a1Breakdown?.total} pts</span>
-                            </div>
-                          </div>
-
-                          {/* Player A2 */}
-                          {editingMatch.playerA2Name && livePreview.a2Breakdown && (
-                            <div className="flex flex-col text-[11px] border-b border-[var(--border-subtle)] pb-1.5">
-                              <span className="font-bold text-ink">{editingMatch.playerA2Name} (Puesto {livePreview.a2Breakdown.base === 25 ? '1º' : livePreview.a2Breakdown.base === 20 ? '2º' : livePreview.a2Breakdown.base === 16 ? '3º' : '4º'}):</span>
-                              <div className="flex flex-wrap gap-x-2 text-[10px] text-ink-faint font-mono mt-0.5">
-                                <span>Base: {livePreview.a2Breakdown.base}</span>
-                                <span>• Juegos: +{livePreview.a2Breakdown.gamesWonPoints}</span>
-                                {livePreview.a2Breakdown.difficultyBonus > 0 && <span className="text-lime-400 font-bold">• Dif: +{livePreview.a2Breakdown.difficultyBonus}</span>}
-                                {livePreview.a2Breakdown.challengeBonus > 0 && <span className="text-amber-400 font-bold">• Reto: +{livePreview.a2Breakdown.challengeBonus}</span>}
-                                {livePreview.a2Breakdown.immacBonus > 0 && <span className="text-cyan-400 font-bold">• Imb: +{livePreview.a2Breakdown.immacBonus}</span>}
-                                <span className="text-ball-safe font-black ml-auto bg-ball/10 px-1 py-0.2 rounded">+{livePreview.a2Breakdown.total} pts</span>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Player B1 */}
-                          <div className="flex flex-col text-[11px] border-b border-[var(--border-subtle)] pb-1.5">
-                            <span className="font-bold text-ink">{editingMatch.playerB1Name} (Puesto {livePreview.b1Breakdown?.base === 25 ? '1º' : livePreview.b1Breakdown?.base === 20 ? '2º' : livePreview.b1Breakdown?.base === 16 ? '3º' : '4º'}):</span>
-                            <div className="flex flex-wrap gap-x-2 text-[10px] text-ink-faint font-mono mt-0.5">
-                              <span>Base: {livePreview.b1Breakdown?.base}</span>
-                              <span>• Juegos: +{livePreview.b1Breakdown?.gamesWonPoints}</span>
-                              {livePreview.b1Breakdown && livePreview.b1Breakdown.difficultyBonus > 0 && <span className="text-lime-400 font-bold">• Dif: +{livePreview.b1Breakdown.difficultyBonus}</span>}
-                              {livePreview.b1Breakdown && livePreview.b1Breakdown.challengeBonus > 0 && <span className="text-amber-400 font-bold">• Reto: +{livePreview.b1Breakdown.challengeBonus}</span>}
-                              {livePreview.b1Breakdown && livePreview.b1Breakdown.immacBonus > 0 && <span className="text-cyan-400 font-bold">• Imb: +{livePreview.b1Breakdown.immacBonus}</span>}
-                              <span className="text-ball-safe font-black ml-auto bg-ball/10 px-1 py-0.2 rounded">+{livePreview.b1Breakdown?.total} pts</span>
-                            </div>
-                          </div>
-
-                          {/* Player B2 */}
-                          {editingMatch.playerB2Name && livePreview.b2Breakdown && (
-                            <div className="flex flex-col text-[11px] pb-0">
-                              <span className="font-bold text-ink">{editingMatch.playerB2Name} (Puesto {livePreview.b2Breakdown.base === 25 ? '1º' : livePreview.b2Breakdown.base === 20 ? '2º' : livePreview.b2Breakdown.base === 16 ? '3º' : '4º'}):</span>
-                              <div className="flex flex-wrap gap-x-2 text-[10px] text-ink-faint font-mono mt-0.5">
-                                <span>Base: {livePreview.b2Breakdown.base}</span>
-                                <span>• Juegos: +{livePreview.b2Breakdown.gamesWonPoints}</span>
-                                {livePreview.b2Breakdown.difficultyBonus > 0 && <span className="text-lime-400 font-bold">• Dif: +{livePreview.b2Breakdown.difficultyBonus}</span>}
-                                {livePreview.b2Breakdown.challengeBonus > 0 && <span className="text-amber-400 font-bold">• Reto: +{livePreview.b2Breakdown.challengeBonus}</span>}
-                                {livePreview.b2Breakdown.immacBonus > 0 && <span className="text-cyan-400 font-bold">• Imb: +{livePreview.b2Breakdown.immacBonus}</span>}
-                                <span className="text-ball-safe font-black ml-auto bg-ball/10 px-1 py-0.2 rounded">+{livePreview.b2Breakdown.total} pts</span>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
 
               {/* Action buttons */}
               <div className="pt-4 border-t border-[var(--border-subtle)] flex justify-end space-x-3">
@@ -1722,7 +1616,8 @@ export default function Partidos({
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
