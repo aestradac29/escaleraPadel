@@ -3168,7 +3168,7 @@ export default function AdminPanel({
             <span>Reinicio para Producción</span>
           </h3>
           <p className="text-ink-muted text-[11px] leading-relaxed mb-4 max-w-2xl">
-            Borra todos los datos de pruebas (jugadores, partidos, retos, sanciones e historial de temporadas) de golpe, justo antes de poner la web en marcha de verdad.
+            Borra todos los datos de pruebas (jugadores, partidos, retos, sanciones e historial de cierres de jornadas) de golpe, justo antes de poner la web en marcha de verdad.
             <strong className="text-ink"> Se conservan los administradores y las categorías configuradas.</strong> Esta acción no se puede deshacer.
           </p>
 
@@ -3202,7 +3202,7 @@ export default function AdminPanel({
                 </div>
                 <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg p-2.5">
                   <span className="block text-rose-400 font-black text-lg">{factoryResetCounts.seasons}</span>
-                  <span className="text-ink-muted">Temporadas a borrar</span>
+                  <span className="text-ink-muted">Cierres a borrar</span>
                 </div>
                 <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg p-2.5">
                   <span className="block text-rose-400 font-black text-lg">{factoryResetCounts.jornadas}</span>

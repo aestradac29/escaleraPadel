@@ -442,7 +442,7 @@ export default function App() {
   };
 
   // 4c. Reinicio para producción: borra TODOS los datos generados (jugadores,
-  // partidos, retos, sanciones, historial de temporadas) PERO conserva:
+  // partidos, retos, sanciones, historial de cierres de jornadas) PERO conserva:
   //   - Las fichas de jugador de los administradores (no se borran)
   //   - La colección 'admins' (no se toca)
   //   - Las categorías configuradas (estructura de la competición)
